@@ -3,7 +3,7 @@ Contributors: callunalabs
 Tags: rest-api, seo, content-pipe, headless, maintenance, monitoring, dashboard
 Requires at least: 6.0
 Tested up to: 6.5
-Stable tag: 0.4.0
+Stable tag: 0.5.0
 License: GPLv2 or later
 Plugin URI: https://github.com/callunaLabs/calluna-companion-wp
 
@@ -77,6 +77,11 @@ Außerdem wird das Feld `calluna_seo` an `/wp-json/wp/v2/posts` registriert,
 sodass es ohne Plugin-Pfad gelesen und geschrieben werden kann.
 
 == Changelog ==
+
+= 0.5.0 =
+* Plugin pings monitor.calluna.ai on activation and daily via WP-Cron — enables auto-discovery of sites with the companion installed.
+* Heartbeat URL is overridable via `calluna_monitor_heartbeat_url` filter. Returning a falsy value disables the heartbeat.
+* Optional shared secret via `CALLUNA_MONITOR_REGISTER_TOKEN` constant in `wp-config.php`.
 
 = 0.4.0 =
 * Plugin in eigenes Repo `callunaLabs/calluna-companion-wp` ausgelagert
