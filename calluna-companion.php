@@ -3,7 +3,7 @@
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
  * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.5.1
+ * Version:           0.5.2
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -35,7 +35,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.5.1');
+define('CALLUNA_COMPANION_VERSION', '0.5.2');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* ============================================================================
@@ -70,6 +70,29 @@ $calluna_companion_update_checker->setBranch('main');
 
 add_filter('wp_is_application_passwords_available', '__return_true', 999);
 add_filter('wp_is_application_passwords_available_for_user', '__return_true', 999, 2);
+
+/*
+ * Zusaetzlich: WP-Core prueft auf wp-admin/authorize-application.php DIREKT
+ * gegen $_SERVER['PHP_AUTH_USER']/PHP_AUTH_PW. Wenn dort etwas drin steht
+ * (Front-Door-Basic-Auth), zeigt WP die Fehlermeldung "scheint Basis-
+ * Authentifizierung zu verwenden" — unabhaengig von den Filtern oben.
+ *
+ * Loesung: auf genau dieser einen Seite die Header aus $_SERVER entfernen,
+ * BEVOR WP-Core sie liest. REST-API + Login-Seiten behalten den Header,
+ * sonst wuerde das Front-Door-Login brechen.
+ */
+$calluna_companion_script = isset($_SERVER['SCRIPT_NAME']) ? basename($_SERVER['SCRIPT_NAME']) : '';
+$calluna_companion_req = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+if (
+    $calluna_companion_script === 'authorize-application.php'
+    || strpos($calluna_companion_req, '/wp-admin/authorize-application.php') !== false
+) {
+    unset($_SERVER['PHP_AUTH_USER'], $_SERVER['PHP_AUTH_PW']);
+    // Apache/CGI legen die Basic-Auth manchmal in HTTP_AUTHORIZATION ab —
+    // auch killen, falls WP daraus PHP_AUTH_* rekonstruieren wuerde.
+    unset($_SERVER['HTTP_AUTHORIZATION'], $_SERVER['REDIRECT_HTTP_AUTHORIZATION']);
+}
+unset($calluna_companion_script, $calluna_companion_req);
 
 /**
  * Helper: Erkennt aktive SEO-Plugins ohne sich auf is_plugin_active() zu verlassen,
