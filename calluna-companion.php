@@ -3,7 +3,7 @@
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
  * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.5.0
+ * Version:           0.5.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -35,7 +35,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.5.0');
+define('CALLUNA_COMPANION_VERSION', '0.5.1');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* ============================================================================
@@ -52,6 +52,24 @@ $calluna_companion_update_checker = \YahnisElsts\PluginUpdateChecker\v5\PucFacto
 // Releases (saubere ZIP-Assets) statt source-tarballs der Tags
 $calluna_companion_update_checker->getVcsApi()->enableReleaseAssets();
 $calluna_companion_update_checker->setBranch('main');
+
+/* ============================================================================
+ * APPLICATION PASSWORDS: Force-enable trotz Front-Door-Basic-Auth
+ * ----------------------------------------------------------------------------
+ * WordPress detected `$_SERVER['PHP_AUTH_USER']` und schaltet den
+ * App-Password-Flow (wp-admin/authorize-application.php) komplett ab —
+ * sichtbar als "Deine Website scheint die Basis-Authentifizierung zu
+ * verwenden, die derzeit nicht mit den Anwendungspasswörtern kompatibel ist."
+ *
+ * Bei Staging-Sites hinter Front-Door-Basic-Auth (z.B. myrdbx.io rb/...)
+ * ist das ein Hard-Block fuer das Calluna-Onboarding. Wir ueberschreiben
+ * deshalb mit hoher Prioritaet die zwei Filter, die WP-Core fuer die
+ * Verfuegbarkeits-Checks nutzt. Sicherheits-Effekt: keiner — App-Passwords
+ * brauchen weiterhin WP-Login + bestaetigten Authorize-Klick.
+ * ========================================================================== */
+
+add_filter('wp_is_application_passwords_available', '__return_true', 999);
+add_filter('wp_is_application_passwords_available_for_user', '__return_true', 999, 2);
 
 /**
  * Helper: Erkennt aktive SEO-Plugins ohne sich auf is_plugin_active() zu verlassen,
