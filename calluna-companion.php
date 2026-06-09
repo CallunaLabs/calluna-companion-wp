@@ -3,7 +3,7 @@
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
  * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.5.2
+ * Version:           0.5.3
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -35,7 +35,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.5.2');
+define('CALLUNA_COMPANION_VERSION', '0.5.3');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* ============================================================================
@@ -93,6 +93,131 @@ if (
     unset($_SERVER['HTTP_AUTHORIZATION'], $_SERVER['REDIRECT_HTTP_AUTHORIZATION']);
 }
 unset($calluna_companion_script, $calluna_companion_req);
+
+/* ============================================================================
+ * TOKEN-AUTH — Front-Door-Basic-Auth-Bypass fuer Calluna Content Pipe
+ * ----------------------------------------------------------------------------
+ * Problem: Staging-Sites hinter Front-Door-Basic-Auth (z.B. myrdbx.io rb/pw)
+ * blockieren den WP-App-Password-Sync. Beide Layer wollen den Authorization-
+ * Header — nur einer kann gleichzeitig korrekt sein.
+ *
+ * Loesung: Content-Pipe sendet zusaetzlich `X-Calluna-Token: <secret>`. Wenn
+ * der Token matched:
+ *   1. wir entfernen $_SERVER['PHP_AUTH_*'] (verhindert dass WP versucht,
+ *      die Front-Door-Basic-Auth-Creds als WP-User zu validieren)
+ *   2. wir setzen `determine_current_user`-Filter auf einen Admin-User —
+ *      damit alle bestehenden permission_callbacks (current_user_can(...))
+ *      ohne Aenderung weiterfunktionieren
+ *
+ * Der Token wird beim Plugin-Aktivieren generiert (64-Zeichen-Random) und
+ * unter "Einstellungen → Calluna Companion" angezeigt. Admin kopiert in
+ * Content-Pipe → Tenant-Settings → "Companion-Token".
+ *
+ * Sicherheit: hash_equals fuer Timing-Safety, 64 Zeichen Entropie reicht
+ * gegen Brute-Force. Token rotierbar in der Admin-UI.
+ * ========================================================================== */
+
+define('CALLUNA_COMPANION_TOKEN_OPTION', 'calluna_companion_secret');
+
+function calluna_companion_get_or_create_secret(): string {
+    $stored = get_option(CALLUNA_COMPANION_TOKEN_OPTION, '');
+    if (!is_string($stored) || strlen($stored) < 32) {
+        $stored = wp_generate_password(64, false, false);
+        update_option(CALLUNA_COMPANION_TOKEN_OPTION, $stored, false);
+    }
+    return $stored;
+}
+
+function calluna_companion_request_has_valid_token(): bool {
+    static $cached = null;
+    if ($cached !== null) return $cached;
+    $hdr = isset($_SERVER['HTTP_X_CALLUNA_TOKEN']) ? (string) $_SERVER['HTTP_X_CALLUNA_TOKEN'] : '';
+    if ($hdr === '') return $cached = false;
+    $stored = get_option(CALLUNA_COMPANION_TOKEN_OPTION, '');
+    if (!is_string($stored) || $stored === '') return $cached = false;
+    return $cached = hash_equals($stored, $hdr);
+}
+
+// Sehr frueh laufen, BEVOR WP irgendeine Basic-Auth-Logik triggert.
+if (calluna_companion_request_has_valid_token()) {
+    unset($_SERVER['PHP_AUTH_USER'], $_SERVER['PHP_AUTH_PW']);
+    unset($_SERVER['HTTP_AUTHORIZATION'], $_SERVER['REDIRECT_HTTP_AUTHORIZATION']);
+
+    add_filter('determine_current_user', function ($user_id) {
+        if ($user_id) return $user_id;
+        $admins = get_users([
+            'role'    => 'administrator',
+            'number'  => 1,
+            'fields'  => 'ID',
+            'orderby' => 'ID',
+            'order'   => 'ASC',
+        ]);
+        return !empty($admins) ? (int) $admins[0] : false;
+    }, 100);
+
+    // Verhindere dass WP-Core eine REST-API-Anfrage als "nicht eingeloggt"
+    // ablehnt — wir sind via Token authentifiziert.
+    add_filter('rest_authentication_errors', function ($result) {
+        // Wenn ein anderes Plugin (z.B. App-Password-Handler) bereits einen
+        // Error gesetzt hat, ueberschreiben wir den, da unser Token vorgeht.
+        if (is_wp_error($result)) return null;
+        return $result;
+    }, 999);
+}
+
+register_activation_hook(__FILE__, function () {
+    calluna_companion_get_or_create_secret();
+});
+
+/* WP-Admin Settings → Calluna Companion */
+add_action('admin_menu', function () {
+    add_options_page(
+        'Calluna Companion',
+        'Calluna Companion',
+        'manage_options',
+        'calluna-companion',
+        'calluna_companion_settings_page'
+    );
+});
+
+function calluna_companion_settings_page(): void {
+    if (!current_user_can('manage_options')) {
+        wp_die('Insufficient permissions.');
+    }
+    if (
+        isset($_POST['calluna_companion_action']) &&
+        $_POST['calluna_companion_action'] === 'regenerate' &&
+        check_admin_referer('calluna_companion_regen')
+    ) {
+        update_option(CALLUNA_COMPANION_TOKEN_OPTION, wp_generate_password(64, false, false), false);
+        echo '<div class="notice notice-success is-dismissible"><p>Token regeneriert. Bestehende Calluna-Verbindungen muessen den neuen Token uebernehmen.</p></div>';
+    }
+    $secret = calluna_companion_get_or_create_secret();
+    ?>
+    <div class="wrap">
+        <h1>Calluna Companion</h1>
+        <p>Dieser Token erlaubt Calluna Content Pipe (https://content-pipe.calluna.ai), diese Site auch dann zu erreichen, wenn sie hinter einem Front-Door-Basic-Auth liegt (z.B. Staging-Schutz).</p>
+        <p><strong>Wie zu benutzen:</strong> Token kopieren → in Content Pipe unter <code>Admin → Tenant → Domain-Editor → Companion-Token</code> einfuegen → Speichern.</p>
+        <h2>Token</h2>
+        <input
+            type="text"
+            readonly
+            value="<?php echo esc_attr($secret); ?>"
+            style="width:100%;max-width:640px;font-family:monospace;font-size:13px;padding:8px;background:#f8f9fa;"
+            onclick="this.select();document.execCommand('copy');this.nextElementSibling.style.display='inline';setTimeout(()=>this.nextElementSibling.style.display='none',1500);"
+        />
+        <span style="display:none;color:#46b450;margin-left:8px;">Kopiert!</span>
+        <p class="description">Klicken kopiert den Token ins Clipboard. <strong>Behandle ihn wie ein Passwort</strong> — wer den Token hat, kann alle REST-Endpoints administrieren.</p>
+        <h2>Token regenerieren</h2>
+        <p>Falls der Token kompromittiert wurde: regeneriere ihn hier. Du musst den neuen Token danach in Content Pipe nachtragen, sonst bricht der Sync.</p>
+        <form method="post">
+            <?php wp_nonce_field('calluna_companion_regen'); ?>
+            <input type="hidden" name="calluna_companion_action" value="regenerate" />
+            <button type="submit" class="button button-secondary" onclick="return confirm('Token wirklich neu generieren? Bestehende Calluna-Verbindungen brechen bis Du den neuen Token in Content Pipe nachtraegst.');">Token neu generieren</button>
+        </form>
+    </div>
+    <?php
+}
 
 /**
  * Helper: Erkennt aktive SEO-Plugins ohne sich auf is_plugin_active() zu verlassen,
