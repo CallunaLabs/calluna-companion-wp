@@ -3,7 +3,7 @@
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
  * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.5.3
+ * Version:           0.5.4
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -35,7 +35,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.5.3');
+define('CALLUNA_COMPANION_VERSION', '0.5.4');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* ============================================================================
@@ -145,6 +145,29 @@ if (calluna_companion_request_has_valid_token()) {
 
     add_filter('determine_current_user', function ($user_id) {
         if ($user_id) return $user_id;
+
+        // Optional: als ein BESTIMMTER WP-User anmelden (Header X-Calluna-WP-User
+        // = Login-Name oder numerische ID). So werden Posts unter dem echten
+        // Account des Kunden angelegt statt unter dem aeltesten Admin. Der User
+        // MUSS Schreibrechte haben (edit_posts), sonst faellt der Endpoint-
+        // permission_callback eh durch. Fallback: aeltester Administrator.
+        $wanted = isset($_SERVER['HTTP_X_CALLUNA_WP_USER'])
+            ? trim((string) $_SERVER['HTTP_X_CALLUNA_WP_USER'])
+            : '';
+        if ($wanted !== '') {
+            $u = null;
+            if (ctype_digit($wanted)) {
+                $u = get_user_by('id', (int) $wanted);
+            }
+            if (!$u) {
+                $u = get_user_by('login', $wanted) ?: get_user_by('slug', $wanted) ?: get_user_by('email', $wanted);
+            }
+            if ($u && user_can($u, 'edit_posts')) {
+                return (int) $u->ID;
+            }
+            // Gewuenschter User nicht gefunden / ohne Rechte → Fallback unten.
+        }
+
         $admins = get_users([
             'role'    => 'administrator',
             'number'  => 1,
