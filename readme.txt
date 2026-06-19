@@ -3,7 +3,7 @@ Contributors: callunalabs
 Tags: rest-api, seo, content-pipe, headless, maintenance, monitoring, dashboard
 Requires at least: 6.0
 Tested up to: 6.5
-Stable tag: 0.5.5
+Stable tag: 0.6.0
 License: GPLv2 or later
 Plugin URI: https://github.com/callunaLabs/calluna-companion-wp
 
@@ -67,7 +67,12 @@ Dashboard Maintenance:
 * `POST /wp-json/calluna/v1/maintenance/cache/clear`
   Multi-Layer-Flush. Reihenfolge: Core Object → WP Rocket (Domain + Minify +
   Critical-CSS + Advanced-Cache) → Elementor → W3TC → Super-Cache → Autoptimize
-  → OPcache. Liefert geleerte Layer als Array zurück.
+  → OPcache → Raidboxes Server-Cache (wenn erkannt). Liefert geleerte Layer als
+  Array + `raidboxes`-Detail zurück.
+* `POST /wp-json/calluna/v1/maintenance/cache/raidboxes`
+  Dedizierter Raidboxes Varnish/Nginx-Purge (Action-Hook → Plugin-Funktion →
+  HTTP PURGE → HTTP BAN). Gibt `{ok, attempts}` zurück. Liefert 400 wenn Site
+  nicht auf Raidboxes läuft.
 * `POST /wp-json/calluna/v1/maintenance/plugins/{slug}/update`
   Triggert `Plugin_Upgrader->upgrade()` für das Plugin mit diesem Slug
   (= erstes Pfadsegment vom Plugin-File, z. B. `wp-rocket`). Liefert
@@ -77,6 +82,13 @@ Außerdem wird das Feld `calluna_seo` an `/wp-json/wp/v2/posts` registriert,
 sodass es ohne Plugin-Pfad gelesen und geschrieben werden kann.
 
 == Changelog ==
+
+= 0.6.0 =
+* Detects Raidboxes hosting via multiple signals (constants, plugin slugs, hostname pattern, filesystem markers).
+* Purges Raidboxes server-side Varnish/Nginx cache via action hook, known function names, HTTP PURGE, and HTTP BAN as fallback. Best-effort, fail-soft.
+* `/maintenance/cache/clear` now includes a `raidboxes` field in the response (null if not Raidboxes-hosted, `{ok, attempts}` otherwise).
+* New dedicated endpoint `POST /maintenance/cache/raidboxes` for targeted Raidboxes-only purge.
+* `/maintenance/health` now reports `raidboxes` in the `caches_available` map.
 
 = 0.5.0 =
 * Plugin pings monitor.calluna.ai on activation and daily via WP-Cron — enables auto-discovery of sites with the companion installed.

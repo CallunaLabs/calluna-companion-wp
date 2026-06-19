@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
- * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.5.5
+ * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
+ * Version:           0.6.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -20,7 +20,8 @@
  * Endpoints (Dashboard Maintenance):
  *   GET  /wp-json/calluna/v1/maintenance/health            WP-/PHP-Version, debug.log-Tail, Cache-Provider-Detection, Update-Counts
  *   GET  /wp-json/calluna/v1/maintenance/plugins           Plugin-Inventory inkl. update_available + new_version
- *   POST /wp-json/calluna/v1/maintenance/cache/clear       Multi-Layer-Flush: Core + WP Rocket + Elementor + W3TC + Super-Cache + Autoptimize + OPcache
+ *   POST /wp-json/calluna/v1/maintenance/cache/clear       Multi-Layer-Flush: Core + WP Rocket + Elementor + W3TC + Super-Cache + Autoptimize + OPcache + Raidboxes Server-Cache
+ *   POST /wp-json/calluna/v1/maintenance/cache/raidboxes   Dedizierter Raidboxes Varnish/Nginx Purge (best-effort, multi-mechanism)
  *   POST /wp-json/calluna/v1/maintenance/plugins/{slug}/update   Triggert wp_update_plugin via Plugin_Upgrader
  *
  * Sicherheit: Alle Endpoints erfordern WordPress Application-Password Auth (Basic Auth).
@@ -35,7 +36,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.5.5');
+define('CALLUNA_COMPANION_VERSION', '0.6.0');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* ============================================================================
@@ -695,6 +696,7 @@ function calluna_companion_maintenance_health(): WP_REST_Response {
             'wp_super_cache' => function_exists('wp_cache_clean_cache'),
             'autoptimize'    => class_exists('autoptimizeCache'),
             'opcache'        => function_exists('opcache_reset'),
+            'raidboxes'      => calluna_companion_is_raidboxes(),
         ],
         'capabilities' => [
             'can_manage_options' => current_user_can('manage_options'),
@@ -756,10 +758,101 @@ function calluna_companion_maintenance_plugins(): WP_REST_Response {
     ], 200);
 }
 
+/* ============================================================================
+ * RAIDBOXES — Server-side Varnish/Nginx cache purge
+ * Multi-mechanism, best-effort, fail-soft.
+ * ========================================================================== */
+
+/**
+ * Detect whether this site is hosted on Raidboxes.
+ * Returns true if ANY signal matches.
+ */
+function calluna_companion_is_raidboxes(): bool {
+    // 1. Constants set by Raidboxes plugin/MU-plugin
+    if (defined('RAIDBOXES_CACHE_VERSION') || defined('RB_INSTALL_PATH')) return true;
+    // 2. Standard Raidboxes plugin active
+    if (function_exists('is_plugin_active')) {
+        if (is_plugin_active('raidboxes/raidboxes.php')) return true;
+        if (is_plugin_active('rb-cache/rb-cache.php')) return true;
+    }
+    // 3. Common Raidboxes host signature in HTTP_HOST (staging domains)
+    $host = isset($_SERVER['HTTP_HOST']) ? (string) $_SERVER['HTTP_HOST'] : '';
+    if (preg_match('/myrdbx\.io$/i', $host)) return true;
+    // 4. Filesystem markers Raidboxes drops in their containers
+    if (file_exists('/etc/raidboxes') || file_exists('/var/lib/raidboxes')) return true;
+    return false;
+}
+
+/**
+ * Best-effort Raidboxes cache purge.
+ * Tries multiple known mechanisms and reports per-mechanism outcome.
+ *
+ * @return array{ok: bool, attempts: array}
+ */
+function calluna_companion_purge_raidboxes(): array {
+    $attempts = [];
+
+    // 1. Action hook (preferred if Raidboxes plugin is active)
+    if (has_action('rb_clear_cache')) {
+        try {
+            do_action('rb_clear_cache');
+            $attempts['rb_clear_cache_action'] = ['ok' => true];
+        } catch (Throwable $e) {
+            $attempts['rb_clear_cache_action'] = ['ok' => false, 'error' => $e->getMessage()];
+        }
+    } else {
+        $attempts['rb_clear_cache_action'] = ['ok' => false, 'error' => 'action not registered'];
+    }
+
+    // 2. Direct function calls (various plugin/MU-plugin versions)
+    foreach (['rb_flush_cache', 'raidboxes_clear_cache', 'rb_cache_flush_all'] as $fn) {
+        if (function_exists($fn)) {
+            try {
+                $fn();
+                $attempts["fn_$fn"] = ['ok' => true];
+            } catch (Throwable $e) {
+                $attempts["fn_$fn"] = ['ok' => false, 'error' => $e->getMessage()];
+            }
+            break; // only try the first one that exists
+        }
+    }
+
+    // 3. HTTP PURGE method on homepage (Varnish-compatible)
+    $home = home_url('/');
+    $purge = wp_remote_request($home, [
+        'method'    => 'PURGE',
+        'timeout'   => 5,
+        'sslverify' => false,
+    ]);
+    if (is_wp_error($purge)) {
+        $attempts['purge_request'] = ['ok' => false, 'error' => $purge->get_error_message()];
+    } else {
+        $code = wp_remote_retrieve_response_code($purge);
+        $attempts['purge_request'] = ['ok' => $code >= 200 && $code < 400, 'status' => $code];
+    }
+
+    // 4. BAN request — some Varnish setups support BAN for regex-based invalidation
+    $ban = wp_remote_request($home, [
+        'method'    => 'BAN',
+        'timeout'   => 5,
+        'sslverify' => false,
+        'headers'   => ['X-Ban-Url' => '.*'],
+    ]);
+    if (is_wp_error($ban)) {
+        $attempts['ban_request'] = ['ok' => false, 'error' => $ban->get_error_message()];
+    } else {
+        $code = wp_remote_retrieve_response_code($ban);
+        $attempts['ban_request'] = ['ok' => $code >= 200 && $code < 400, 'status' => $code];
+    }
+
+    $ok = array_reduce($attempts, fn($carry, $a) => $carry || ($a['ok'] ?? false), false);
+    return ['ok' => $ok, 'attempts' => $attempts];
+}
+
 /**
  * REST: POST /calluna/v1/maintenance/cache/clear
  * Multi-Layer-Flush: Core Object → WP Rocket (Domain + Minify + Critical-CSS) →
- * Elementor CSS → W3TC → Super-Cache → Autoptimize → OPcache.
+ * Elementor CSS → W3TC → Super-Cache → Autoptimize → OPcache → Raidboxes.
  * Returnt 200 wenn alle erkannten Layer geleert, 207 wenn Teilfehler.
  */
 function calluna_companion_maintenance_cache_clear(): WP_REST_Response {
@@ -837,10 +930,22 @@ function calluna_companion_maintenance_cache_clear(): WP_REST_Response {
         $cleared[] = 'opcache';
     }
 
+    // Raidboxes server cache (Varnish + Nginx) — only when detected
+    $raidboxes = null;
+    if (calluna_companion_is_raidboxes()) {
+        $raidboxes = calluna_companion_purge_raidboxes();
+        if (!($raidboxes['ok'] ?? false)) {
+            $errors['raidboxes'] = 'all_mechanisms_failed';
+        } else {
+            $cleared[] = 'raidboxes_server_cache';
+        }
+    }
+
     return new WP_REST_Response([
         'ok'         => empty($errors),
         'cleared'    => $cleared,
         'errors'     => $errors,
+        'raidboxes'  => $raidboxes,
         'cleared_at' => current_time('c'),
     ], empty($errors) ? 200 : 207);
 }
@@ -965,6 +1070,17 @@ add_action('rest_api_init', function () {
         'methods'             => 'POST',
         'callback'            => 'calluna_companion_maintenance_plugin_update',
         'permission_callback' => fn() => current_user_can('update_plugins'),
+    ]);
+
+    register_rest_route(CALLUNA_COMPANION_NAMESPACE, '/maintenance/cache/raidboxes', [
+        'methods'  => 'POST',
+        'callback' => function () {
+            if (!calluna_companion_is_raidboxes()) {
+                return new WP_REST_Response(['ok' => false, 'error' => 'not_raidboxes'], 400);
+            }
+            return new WP_REST_Response(calluna_companion_purge_raidboxes(), 200);
+        },
+        'permission_callback' => fn() => current_user_can('manage_options'),
     ]);
 });
 
