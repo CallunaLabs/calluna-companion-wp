@@ -3,7 +3,7 @@
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
  * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.6.0
+ * Version:           0.7.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.6.0');
+define('CALLUNA_COMPANION_VERSION', '0.7.0');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* ============================================================================
@@ -1047,10 +1047,61 @@ function calluna_companion_maintenance_plugin_update(WP_REST_Request $req): WP_R
     ], 200);
 }
 
+/**
+ * REST: GET/POST /calluna/v1/maintenance/option
+ * Schmaler, whitelisted Setter für Calluna-Update-Optionen — KEIN generischer
+ * Options-Writer, KEIN Code-Upload. Erlaubt sind nur:
+ *   - *_github_token  (z.B. cp_github_token, cdb_github_token — Bootstrap-Token)
+ *   - calluna_proxy_secret  (X-Calluna-Proxy für den Update-Proxy)
+ *
+ * GET  → meldet maskiert, welche dieser Optionen gesetzt sind.
+ * POST → {"name":"<option>","value":"<wert>"}  schreibt den Wert (autoload=false).
+ *        Alternativ {"name":"…","copy_from":"<andere whitelisted option>"} kopiert.
+ */
+function calluna_companion_maintenance_option_is_allowed(string $opt): bool {
+    return $opt === 'calluna_proxy_secret' || substr($opt, -13) === '_github_token';
+}
+
+function calluna_companion_maintenance_option(WP_REST_Request $req): WP_REST_Response {
+    $known = ['calluna_github_token', 'cp_github_token', 'cdb_github_token', 'calluna_proxy_secret'];
+
+    if ($req->get_method() === 'GET') {
+        $report = [];
+        foreach ($known as $opt) {
+            $v = (string) get_option($opt, '');
+            $report[$opt] = $v === '' ? null : (substr($v, 0, 4) . '…' . substr($v, -4) . ' (' . strlen($v) . ')');
+        }
+        return new WP_REST_Response(['ok' => true, 'options' => $report], 200);
+    }
+
+    $name = sanitize_key((string) ($req->get_param('name') ?? ''));
+    if ($name === '' || !calluna_companion_maintenance_option_is_allowed($name)) {
+        return new WP_REST_Response(['ok' => false, 'error' => 'option_not_allowed', 'message' => 'Nur *_github_token oder calluna_proxy_secret.'], 400);
+    }
+
+    $value = (string) ($req->get_param('value') ?? '');
+    $copy  = sanitize_key((string) ($req->get_param('copy_from') ?? ''));
+    if ($value === '' && $copy !== '' && calluna_companion_maintenance_option_is_allowed($copy)) {
+        $value = (string) get_option($copy, '');
+    }
+    if ($value === '') {
+        return new WP_REST_Response(['ok' => false, 'error' => 'no_value', 'message' => 'value oder copy_from (mit Wert) nötig.'], 400);
+    }
+
+    update_option($name, $value, false);
+    return new WP_REST_Response(['ok' => true, 'option' => $name, 'value_len' => strlen($value)], 200);
+}
+
 add_action('rest_api_init', function () {
     register_rest_route(CALLUNA_COMPANION_NAMESPACE, '/maintenance/health', [
         'methods'             => 'GET',
         'callback'            => 'calluna_companion_maintenance_health',
+        'permission_callback' => fn() => current_user_can('manage_options'),
+    ]);
+
+    register_rest_route(CALLUNA_COMPANION_NAMESPACE, '/maintenance/option', [
+        'methods'             => ['GET', 'POST'],
+        'callback'            => 'calluna_companion_maintenance_option',
         'permission_callback' => fn() => current_user_can('manage_options'),
     ]);
 
