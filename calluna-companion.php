@@ -3,7 +3,7 @@
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
  * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.7.0
+ * Version:           0.7.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.7.0');
+define('CALLUNA_COMPANION_VERSION', '0.7.1');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* ============================================================================
@@ -978,6 +978,14 @@ function calluna_companion_maintenance_plugin_update(WP_REST_Request $req): WP_R
 
     $all          = get_plugins();
     $from_version = $all[$plugin_file]['Version'] ?? '';
+
+    // Force-Refresh: WordPress cached die Update-Daten (inkl. Paket-URL) bis zu
+    // 12h. Ohne das hier würde eine veraltete/falsche Paket-URL (z.B. aus einem
+    // tokenlosen Check) hängenbleiben. Vollständig neu einlesen.
+    if (function_exists('wp_clean_plugins_cache')) {
+        wp_clean_plugins_cache(true);
+    }
+    delete_site_transient('update_plugins');
 
     wp_update_plugins();
     $updates = get_site_transient('update_plugins');
