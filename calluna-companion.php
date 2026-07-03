@@ -3,7 +3,7 @@
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
  * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.7.3
+ * Version:           0.8.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.7.3');
+define('CALLUNA_COMPANION_VERSION', '0.8.0');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* Calluna-Index-Connector: Feedback-Overlay + reise/v1-REST-Bridge (theme-unabhängig) */
@@ -667,6 +667,121 @@ add_action('rest_api_init', function () {
         },
         'permission_callback' => fn() => current_user_can('manage_categories'),
     ]);
+});
+
+/**
+ * ── Translate-Modul: hreflang + Sprachumschalter ──────────────────────────
+ *
+ * Die Content-Pipe ist Source of Truth für Übersetzungsgruppen — auch über
+ * Domaingrenzen (z.B. stadtlandmama.de <-> unfilteredmoms.com). Sie pusht pro
+ * Post den kompletten, reziproken Alternates-Satz hierher; das Plugin speichert
+ * ihn als Post-Meta und rendert daraus (a) die hreflang-<link>-Tags im <head>
+ * und (b) einen sichtbaren Sprachumschalter (Shortcode). Topologie-agnostisch:
+ * identischer Code für same-site (Polylang) und Cross-Domain.
+ */
+define('CALLUNA_COMPANION_HREFLANG_META', '_calluna_hreflang');
+
+add_action('rest_api_init', function () {
+    // POST /calluna/v1/hreflang/{postId}  Body: { alternates: [{hreflang, href}, ...] }
+    register_rest_route(CALLUNA_COMPANION_NAMESPACE, '/hreflang/(?P<id>\d+)', [
+        'methods'             => 'POST',
+        'callback'            => 'calluna_companion_rest_set_hreflang',
+        'permission_callback' => fn() => current_user_can('edit_posts'),
+    ]);
+});
+
+function calluna_companion_rest_set_hreflang(WP_REST_Request $req) {
+    $post_id = (int) $req['id'];
+    if (get_post_status($post_id) === false) {
+        return new WP_Error('not_found', 'Post nicht gefunden', ['status' => 404]);
+    }
+    $body = $req->get_json_params();
+    $alts = (is_array($body) && isset($body['alternates']) && is_array($body['alternates'])) ? $body['alternates'] : null;
+    if ($alts === null) {
+        return new WP_Error('bad_request', 'Body braucht { alternates: [{hreflang, href}, ...] }', ['status' => 400]);
+    }
+    $clean = [];
+    foreach ($alts as $a) {
+        if (!is_array($a) || empty($a['hreflang']) || empty($a['href'])) {
+            continue;
+        }
+        $hreflang = sanitize_text_field($a['hreflang']);
+        $href     = esc_url_raw($a['href']);
+        if ($hreflang === '' || $href === '') {
+            continue;
+        }
+        $clean[] = ['hreflang' => $hreflang, 'href' => $href];
+    }
+    if (empty($clean)) {
+        delete_post_meta($post_id, CALLUNA_COMPANION_HREFLANG_META);
+    } else {
+        update_post_meta($post_id, CALLUNA_COMPANION_HREFLANG_META, wp_json_encode($clean));
+    }
+    return new WP_REST_Response(['ok' => true, 'post_id' => $post_id, 'count' => count($clean)], 200);
+}
+
+/** Liest den gespeicherten Alternates-Satz eines Posts (dekodiert). */
+function calluna_companion_get_hreflang(int $post_id): array {
+    $raw = get_post_meta($post_id, CALLUNA_COMPANION_HREFLANG_META, true);
+    if (!$raw) {
+        return [];
+    }
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+// hreflang-<link>-Tags im <head> für Einzel-Posts/Seiten (reziprok, inkl. x-default).
+add_action('wp_head', function () {
+    if (!is_singular()) {
+        return;
+    }
+    $post_id = get_queried_object_id();
+    if (!$post_id) {
+        return;
+    }
+    $alts = calluna_companion_get_hreflang($post_id);
+    if (empty($alts)) {
+        return;
+    }
+    echo "\n<!-- Calluna Translate hreflang -->\n";
+    foreach ($alts as $a) {
+        if (empty($a['hreflang']) || empty($a['href'])) {
+            continue;
+        }
+        printf('<link rel="alternate" hreflang="%s" href="%s" />' . "\n", esc_attr($a['hreflang']), esc_url($a['href']));
+    }
+}, 1);
+
+/**
+ * Sichtbarer Sprachumschalter: [calluna_language_switcher].
+ * Rendert die (Cross-Domain-)URLs aus demselben Meta (ohne x-default).
+ * Attribute: class (CSS-Klasse), label (führender Text). Erst ab 2 Sprachen.
+ */
+add_shortcode('calluna_language_switcher', function ($atts) {
+    $atts = shortcode_atts(['class' => 'calluna-lang-switcher', 'label' => ''], $atts, 'calluna_language_switcher');
+    $post_id = get_queried_object_id();
+    if (!$post_id) {
+        return '';
+    }
+    $alts = array_values(array_filter(calluna_companion_get_hreflang($post_id), function ($a) {
+        return !empty($a['hreflang']) && $a['hreflang'] !== 'x-default' && !empty($a['href']);
+    }));
+    if (count($alts) < 2) {
+        return '';
+    }
+    $items = '';
+    foreach ($alts as $a) {
+        $code = esc_attr($a['hreflang']);
+        $items .= sprintf(
+            '<li class="calluna-lang-item"><a href="%s" hreflang="%s" lang="%s">%s</a></li>',
+            esc_url($a['href']),
+            $code,
+            $code,
+            esc_html(strtoupper(substr($a['hreflang'], 0, 2)))
+        );
+    }
+    $lead = $atts['label'] !== '' ? '<span class="calluna-lang-label">' . esc_html($atts['label']) . '</span>' : '';
+    return sprintf('<nav class="%s" aria-label="Sprachen">%s<ul>%s</ul></nav>', esc_attr($atts['class']), $lead, $items);
 });
 
 /**

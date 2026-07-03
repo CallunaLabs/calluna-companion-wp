@@ -3,7 +3,7 @@ Contributors: callunalabs
 Tags: rest-api, seo, content-pipe, headless, maintenance, monitoring, dashboard
 Requires at least: 6.0
 Tested up to: 6.5
-Stable tag: 0.7.2
+Stable tag: 0.8.0
 License: GPLv2 or later
 Plugin URI: https://github.com/callunaLabs/calluna-companion-wp
 
@@ -82,6 +82,11 @@ Außerdem wird das Feld `calluna_seo` an `/wp-json/wp/v2/posts` registriert,
 sodass es ohne Plugin-Pfad gelesen und geschrieben werden kann.
 
 == Changelog ==
+
+= 0.8.0 =
+* Translate-Modul: `POST /calluna/v1/hreflang/{postId}` speichert den von der Content-Pipe gepushten, reziproken Alternates-Satz als Post-Meta.
+* `wp_head` gibt daraus `<link rel="alternate" hreflang="…">`-Tags inkl. `x-default` aus — funktioniert auch Cross-Domain (getrennte WP-Installationen), da die Pipe Source of Truth ist.
+* Shortcode `[calluna_language_switcher]` rendert einen sichtbaren Sprachumschalter aus demselben Meta (topologie-agnostisch, ab 2 Sprachen).
 
 = 0.6.0 =
 * Detects Raidboxes hosting via multiple signals (constants, plugin slugs, hostname pattern, filesystem markers).
