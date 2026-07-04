@@ -3,7 +3,7 @@
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
  * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.8.2
+ * Version:           0.8.3
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.8.2');
+define('CALLUNA_COMPANION_VERSION', '0.8.3');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* Calluna-Index-Connector: Feedback-Overlay + reise/v1-REST-Bridge (theme-unabhängig) */
@@ -222,7 +222,22 @@ function calluna_companion_settings_page(): void {
     $secret = calluna_companion_get_or_create_secret();
     ?>
     <div class="wrap">
-        <h1>Calluna Companion</h1>
+        <div style="display:flex;align-items:center;gap:14px;margin:10px 0 6px;">
+            <svg viewBox="0 0 169.02 27.44" fill="#6933d9" role="img" aria-label="Calluna" style="height:26px;width:auto;">
+                <path d="M12.77,20.51c1.75,0,3.2-.47,4.35-1.4.76-.62,1.37-1.42,1.82-2.4s1.46-1.63,2.56-1.63h3.33c-.5,3.14-1.85,5.66-4.03,7.56-2.18,1.9-4.86,2.84-8.02,2.84-3.6,0-6.63-1.21-9.08-3.62-2.46-2.41-3.69-5.45-3.69-9.12S1.23,6.03,3.69,3.62C6.15,1.21,9.18,0,12.77,0,15.94,0,18.61.95,20.8,2.84c2.18,1.9,3.53,4.41,4.03,7.56h-5.33c-.43-1.75-1.22-3.09-2.38-4.03s-2.6-1.4-4.35-1.4c-2.18,0-3.98.72-5.4,2.16-1.42,1.44-2.12,3.31-2.12,5.61s.71,4.17,2.12,5.61,3.21,2.16,5.4,2.16Z"></path>
+                <path d="M115.91.5v13.35c0,3.62-1,6.47-3,8.55-2,2.08-4.7,3.11-8.08,3.11s-6.03-1.04-8.02-3.11c-1.99-2.07-2.99-4.92-2.99-8.55V.5h5.18v13.39c0,2.04.53,3.68,1.6,4.91,1.07,1.24,2.48,1.85,4.23,1.85s3.2-.62,4.28-1.85c1.08-1.23,1.62-2.87,1.62-4.91V.5h5.18Z"></path>
+                <path d="M141.91.5v24.47h-4.03l-12.85-14.86v14.86h-5.22V.5h3.92l12.95,15.26V.5h5.22Z"></path>
+                <path d="M74.14.5h5.22s0,24.47,0,24.47h-5.22V.5Z"></path>
+                <path d="M79.35,24.97h9.5c1.07,0,2.06-.61,2.54-1.57l1.54-3.07h-11.25l-2.32,4.64Z"></path>
+                <path d="M159.83.5l8.97,21.38c.42.99.24,2.13-.46,2.94l-2.24,2.61-7.2-17.15c-.55-1.31-.67-2.75-.36-4.14l1.29-5.65Z"></path>
+                <path d="M52.93.5h5.22s0,24.47,0,24.47h-5.22V.5Z"></path>
+                <path d="M58.14,24.97h9.5c1.07,0,2.06-.61,2.54-1.57l1.54-3.07h-11.25l-2.32,4.64Z"></path>
+                <polygon points="149.99 24.97 159.83 .5 154.93 .5 144.45 24.97 149.99 24.97"></polygon>
+                <polygon points="30.16 24.97 37.52 6.73 45.23 24.97 50.44 24.97 40 .5 35.11 .5 24.62 24.97 30.16 24.97"></polygon>
+            </svg>
+            <span style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#6b7280;">Companion</span>
+        </div>
+        <h1 class="screen-reader-text">Calluna Companion</h1>
         <p>Dieser Token erlaubt Calluna Content Pipe (https://content-pipe.calluna.ai), diese Site auch dann zu erreichen, wenn sie hinter einem Front-Door-Basic-Auth liegt (z.B. Staging-Schutz).</p>
         <p><strong>Wie zu benutzen:</strong> Token kopieren → in Content Pipe unter <code>Admin → Tenant → Domain-Editor → Companion-Token</code> einfuegen → Speichern.</p>
         <h2>Token</h2>
