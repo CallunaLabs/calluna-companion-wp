@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.8.4');
+define('CALLUNA_COMPANION_VERSION', '0.8.5');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* Calluna-Index-Connector: Feedback-Overlay + reise/v1-REST-Bridge (theme-unabhängig) */
@@ -1603,7 +1603,90 @@ add_action('rest_api_init', function () {
         },
         'permission_callback' => fn() => current_user_can('manage_options'),
     ]);
+
+    register_rest_route(CALLUNA_COMPANION_NAMESPACE, '/maintenance/critical-css/regenerate', [
+        'methods'  => 'POST',
+        'callback' => 'calluna_companion_maintenance_critical_css_regen',
+        'permission_callback' => fn() => current_user_can('manage_options'),
+    ]);
+
+    register_rest_route(CALLUNA_COMPANION_NAMESPACE, '/maintenance/pages', [
+        'methods'  => 'GET',
+        'callback' => 'calluna_companion_maintenance_pages',
+        'permission_callback' => fn() => current_user_can('manage_options'),
+    ]);
 });
+
+/**
+ * REST: POST /calluna/v1/maintenance/critical-css/regenerate
+ * Löst WP-Rocket Critical-CSS-Neugenerierung aus. Body optional:
+ *   { "scope": "all"|"template"|"url", "target": "<url>" }
+ * Fällt auf `all` zurück wenn Scope fehlt. Liefert 400 wenn WP-Rocket nicht aktiv.
+ */
+function calluna_companion_maintenance_critical_css_regen(WP_REST_Request $req): WP_REST_Response {
+    $body   = $req->get_json_params() ?: [];
+    $scope  = isset($body['scope'])  ? sanitize_key((string) $body['scope']) : 'all';
+    $target = isset($body['target']) ? esc_url_raw((string) $body['target']) : null;
+
+    if (!function_exists('rocket_generate_critical_css') && !class_exists('WP_Rocket\\Engine\\CriticalPath\\CriticalCSS')) {
+        return new WP_REST_Response(['ok' => false, 'error' => 'wp_rocket_not_active'], 400);
+    }
+
+    $result = ['scope' => $scope, 'target' => $target, 'triggered' => []];
+
+    if (function_exists('rocket_clean_critical_css')) {
+        rocket_clean_critical_css();
+        $result['triggered'][] = 'clean_existing';
+    }
+
+    if (function_exists('rocket_generate_critical_css')) {
+        rocket_generate_critical_css();
+        $result['triggered'][] = 'regenerate_all';
+    } else {
+        do_action('rocket_critical_css_generation_process_running');
+        $result['triggered'][] = 'action_hook_fallback';
+    }
+
+    return new WP_REST_Response(['ok' => true] + $result, 200);
+}
+
+/**
+ * REST: GET /calluna/v1/maintenance/pages
+ * Curated list of URLs the monitor should test — homepage + all published pages +
+ * a bounded post sample. Feed für Health-Fanout, damit der Monitor nicht raten muss.
+ */
+function calluna_companion_maintenance_pages(WP_REST_Request $req): WP_REST_Response {
+    $limit = min(20, max(5, (int) ($req->get_param('limit') ?: 12)));
+    $urls  = ['/'];
+
+    $pages = get_posts([
+        'post_type'      => 'page',
+        'post_status'    => 'publish',
+        'posts_per_page' => 8,
+        'fields'         => 'ids',
+        'orderby'        => 'menu_order',
+        'order'          => 'ASC',
+    ]);
+    foreach ($pages as $pid) {
+        $link = get_permalink($pid);
+        if ($link) $urls[] = wp_parse_url($link, PHP_URL_PATH) ?: $link;
+    }
+
+    $posts = get_posts([
+        'post_type'      => 'post',
+        'post_status'    => 'publish',
+        'posts_per_page' => $limit,
+        'fields'         => 'ids',
+        'orderby'        => 'rand',
+    ]);
+    foreach ($posts as $pid) {
+        $link = get_permalink($pid);
+        if ($link) $urls[] = wp_parse_url($link, PHP_URL_PATH) ?: $link;
+    }
+
+    $urls = array_values(array_unique(array_slice($urls, 0, $limit + 1)));
+    return new WP_REST_Response(['pages' => $urls], 200);
+}
 
 /* ============================================================================
  * MONITOR HEARTBEAT — periodic self-registration to monitor.calluna.ai
