@@ -3,7 +3,7 @@ Contributors: callunalabs
 Tags: rest-api, seo, content-pipe, headless, maintenance, monitoring, dashboard
 Requires at least: 6.0
 Tested up to: 6.5
-Stable tag: 0.8.0
+Stable tag: 0.8.1
 License: GPLv2 or later
 Plugin URI: https://github.com/callunaLabs/calluna-companion-wp
 
@@ -82,6 +82,9 @@ Außerdem wird das Feld `calluna_seo` an `/wp-json/wp/v2/posts` registriert,
 sodass es ohne Plugin-Pfad gelesen und geschrieben werden kann.
 
 == Changelog ==
+
+= 0.8.1 =
+* `/info` liefert jetzt einen `i18n`-Block: erkennt Polylang (free/pro), WPML, TranslatePress und Weglot, plus `active` (primär erkanntes Plugin) und `polylang_languages`. Translate nutzt das, um zu erkennen, auf welchem Mehrsprachigkeits-Plugin es aufsetzen kann.
 
 = 0.8.0 =
 * Translate-Modul: `POST /calluna/v1/hreflang/{postId}` speichert den von der Content-Pipe gepushten, reziproken Alternates-Satz als Post-Meta.

@@ -3,7 +3,7 @@
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
  * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.8.0
+ * Version:           0.8.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.8.0');
+define('CALLUNA_COMPANION_VERSION', '0.8.1');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* Calluna-Index-Connector: Feedback-Overlay + reise/v1-REST-Bridge (theme-unabhängig) */
@@ -409,6 +409,28 @@ function calluna_companion_rest_info(): WP_REST_Response {
         'acf'         => class_exists('ACF'),
     ];
 
+    // Internationalisierungs-Plugins für das Translate-Modul: worauf können wir
+    // draufsetzen? Polylang (free/pro) + WPML = Post-pro-Sprache (nutzbar);
+    // TranslatePress/Weglot = String-/Proxy-Übersetzung (für same-site-Automatik
+    // nicht nutzbar). `active` = das primär erkannte Plugin (Polylang bevorzugt).
+    $i18n = [
+        'polylang'       => function_exists('pll_current_language') || defined('POLYLANG_VERSION'),
+        'polylang_pro'   => defined('POLYLANG_PRO_VERSION') || class_exists('PLL_Pro'),
+        'wpml'           => defined('ICL_SITEPRESS_VERSION'),
+        'translatepress' => defined('TRP_PLUGIN_VERSION') || class_exists('TRP_Translate_Press'),
+        'weglot'         => defined('WEGLOT_VERSION') || function_exists('weglot_get_service'),
+    ];
+    $i18n_active = ($i18n['polylang'] || $i18n['polylang_pro']) ? 'polylang'
+        : ($i18n['wpml'] ? 'wpml'
+        : ($i18n['translatepress'] ? 'translatepress'
+        : ($i18n['weglot'] ? 'weglot' : null)));
+    $i18n['active']        = $i18n_active;
+    $i18n['site_language'] = get_bloginfo('language');
+    // Polylang-Sprachen (falls vorhanden) — Slugs für die Ziel-Zuordnung.
+    $i18n['polylang_languages'] = function_exists('pll_languages_list')
+        ? array_values(pll_languages_list())
+        : [];
+
     return new WP_REST_Response([
         'companion_version' => CALLUNA_COMPANION_VERSION,
         'wp_version'        => get_bloginfo('version'),
@@ -417,6 +439,7 @@ function calluna_companion_rest_info(): WP_REST_Response {
         'seo_plugin'        => $plugin,
         'seo_meta_keys'     => calluna_companion_seo_meta_keys($plugin),
         'plugins'           => $detected,
+        'i18n'              => $i18n,
         'rest_namespaces'   => $namespaces,
         'capabilities'      => [
             'can_edit_posts' => current_user_can('edit_posts'),
