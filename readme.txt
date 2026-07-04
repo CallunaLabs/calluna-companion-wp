@@ -3,7 +3,7 @@ Contributors: callunalabs
 Tags: rest-api, seo, content-pipe, headless, maintenance, monitoring, dashboard
 Requires at least: 6.0
 Tested up to: 6.5
-Stable tag: 0.8.3
+Stable tag: 0.8.4
 License: GPLv2 or later
 Plugin URI: https://github.com/callunaLabs/calluna-companion-wp
 
@@ -82,6 +82,10 @@ Außerdem wird das Feld `calluna_seo` an `/wp-json/wp/v2/posts` registriert,
 sodass es ohne Plugin-Pfad gelesen und geschrieben werden kann.
 
 == Changelog ==
+
+= 0.8.4 =
+* `/info` `i18n`-Block liefert jetzt eine generische `languages`-Liste (Polylang ODER WPML-Sprachcodes).
+* Neuer Endpoint `GET /calluna/v1/i18n/overview` — Übersetzungs-Library: pro Quell-Post die vorhandenen Sprachversionen (WPML via trid, Polylang via translations), paginiert. Basis für die Translate-Library.
 
 = 0.8.3 =
 * Calluna-Logo (Wortmarke, Brand-Purple) im Kopf der Companion-Einstellungsseite.

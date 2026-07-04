@@ -3,7 +3,7 @@
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
  * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.8.3
+ * Version:           0.8.4
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.8.3');
+define('CALLUNA_COMPANION_VERSION', '0.8.4');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* Calluna-Index-Connector: Feedback-Overlay + reise/v1-REST-Bridge (theme-unabhängig) */
@@ -445,6 +445,17 @@ function calluna_companion_rest_info(): WP_REST_Response {
     $i18n['polylang_languages'] = function_exists('pll_languages_list')
         ? array_values(pll_languages_list())
         : [];
+    // Generische Sprachliste (Polylang ODER WPML) — Slugs/Codes für die Ziel-Auswahl.
+    $i18n_languages = [];
+    if (function_exists('pll_languages_list')) {
+        $i18n_languages = array_values(pll_languages_list());
+    } elseif (defined('ICL_SITEPRESS_VERSION')) {
+        $wpml_langs = apply_filters('wpml_active_languages', null, ['skip_missing' => 0]);
+        if (is_array($wpml_langs)) {
+            $i18n_languages = array_values(array_keys($wpml_langs)); // Sprachcodes, z.B. de, en, fr
+        }
+    }
+    $i18n['languages'] = $i18n_languages;
 
     return new WP_REST_Response([
         'companion_version' => CALLUNA_COMPANION_VERSION,
@@ -910,6 +921,117 @@ function calluna_companion_rest_i18n_link(WP_REST_Request $req) {
 
     // Kein unterstütztes i18n-Plugin — hreflang/Switcher laufen trotzdem über die Companion.
     return new WP_REST_Response(['ok' => false, 'strategy' => 'none', 'reason' => 'kein Polylang/WPML aktiv'], 200);
+}
+
+/**
+ * Übersetzungs-Übersicht (Library): pro Quell-Post (Standardsprache) die
+ * vorhandenen Sprachversionen — für die Translate-Library, WPML-artig.
+ *
+ * GET /calluna/v1/i18n/overview?per_page=50&page=1&post_type=post
+ * → { plugin, default_lang, languages:[...], total, page, per_page,
+ *     rows: [ { title, source_lang, source_id, source_link,
+ *               langs: { de:{id,title,link,status}, en:{...} } } ] }
+ */
+add_action('rest_api_init', function () {
+    register_rest_route(CALLUNA_COMPANION_NAMESPACE, '/i18n/overview', [
+        'methods'             => 'GET',
+        'callback'            => 'calluna_companion_rest_i18n_overview',
+        'permission_callback' => fn() => current_user_can('edit_posts'),
+    ]);
+});
+
+function calluna_companion_rest_i18n_overview(WP_REST_Request $req): WP_REST_Response {
+    $per_page  = min(200, max(1, (int) ($req['per_page'] ?? 50)));
+    $page      = max(1, (int) ($req['page'] ?? 1));
+    $post_type = sanitize_key($req['post_type'] ?? 'post');
+    $el_type   = 'post_' . $post_type;
+
+    $is_pll  = function_exists('pll_languages_list') && function_exists('pll_get_post_translations');
+    $is_wpml = defined('ICL_SITEPRESS_VERSION');
+
+    // Sprachen + Default
+    $languages = [];
+    $default_lang = null;
+    if ($is_pll) {
+        $languages = array_values(pll_languages_list());
+        $default_lang = function_exists('pll_default_language') ? pll_default_language() : null;
+    } elseif ($is_wpml) {
+        $wpml_langs = apply_filters('wpml_active_languages', null, ['skip_missing' => 0]);
+        if (is_array($wpml_langs)) {
+            $languages = array_values(array_keys($wpml_langs));
+        }
+        $default_lang = apply_filters('wpml_default_language', null);
+    }
+
+    // Quell-Posts in der Standardsprache (die "Zeilen" der Library).
+    if ($is_wpml && $default_lang) {
+        do_action('wpml_switch_language', $default_lang);
+    }
+    $q = new WP_Query([
+        'post_type'      => $post_type,
+        'post_status'    => 'publish',
+        'posts_per_page' => $per_page,
+        'paged'          => $page,
+        'orderby'        => 'date',
+        'order'          => 'DESC',
+    ]);
+
+    $rows = [];
+    foreach ($q->posts as $post) {
+        $langs = [];
+        if ($is_pll) {
+            $map = pll_get_post_translations($post->ID); // [lang => post_id]
+            foreach ($map as $lang => $pid) {
+                $langs[$lang] = [
+                    'id'     => (int) $pid,
+                    'title'  => get_the_title($pid),
+                    'link'   => get_permalink($pid),
+                    'status' => get_post_status($pid),
+                ];
+            }
+        } elseif ($is_wpml) {
+            $trid = apply_filters('wpml_element_trid', null, $post->ID, $el_type);
+            $translations = $trid ? apply_filters('wpml_get_element_translations', null, $trid, $el_type) : [];
+            if (is_array($translations)) {
+                foreach ($translations as $lang => $t) {
+                    $pid = is_object($t) ? ($t->element_id ?? null) : (is_array($t) ? ($t['element_id'] ?? null) : null);
+                    if (!$pid) continue;
+                    $langs[$lang] = [
+                        'id'     => (int) $pid,
+                        'title'  => get_the_title($pid),
+                        'link'   => get_permalink($pid),
+                        'status' => get_post_status($pid),
+                    ];
+                }
+            }
+        }
+        if (empty($langs)) {
+            // Kein Mehrsprachigkeits-Plugin oder Post ohne Sprachzuordnung: nur die Quelle.
+            $langs[$default_lang ?: 'und'] = [
+                'id'     => $post->ID,
+                'title'  => get_the_title($post),
+                'link'   => get_permalink($post),
+                'status' => $post->post_status,
+            ];
+        }
+        $rows[] = [
+            'title'       => get_the_title($post),
+            'source_lang' => $default_lang,
+            'source_id'   => $post->ID,
+            'source_link' => get_permalink($post),
+            'langs'       => $langs,
+        ];
+    }
+
+    return new WP_REST_Response([
+        'plugin'       => $is_pll ? 'polylang' : ($is_wpml ? 'wpml' : null),
+        'default_lang' => $default_lang,
+        'languages'    => $languages,
+        'total'        => (int) $q->found_posts,
+        'page'         => $page,
+        'per_page'     => $per_page,
+        'rows'         => $rows,
+    ], 200);
 }
 
 /**
