@@ -3,7 +3,7 @@
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
  * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.8.1
+ * Version:           0.8.2
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.8.1');
+define('CALLUNA_COMPANION_VERSION', '0.8.2');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* Calluna-Index-Connector: Feedback-Overlay + reise/v1-REST-Bridge (theme-unabhängig) */
@@ -806,6 +806,96 @@ add_shortcode('calluna_language_switcher', function ($atts) {
     $lead = $atts['label'] !== '' ? '<span class="calluna-lang-label">' . esc_html($atts['label']) . '</span>' : '';
     return sprintf('<nav class="%s" aria-label="Sprachen">%s<ul>%s</ul></nav>', esc_attr($atts['class']), $lead, $items);
 });
+
+/**
+ * Same-site-Verlinkung: setzt je Post die Sprache und hängt sie als Übersetzungs-
+ * gruppe zusammen — plugin-bewusst (Polylang ODER WPML). Die Pipe schickt die
+ * Gruppe; das Plugin entscheidet, WIE verlinkt wird (Post-pro-Sprache-Modell).
+ *
+ * POST /calluna/v1/i18n/link
+ * Body: { "source_lang": "de", "posts": [ {"lang":"de","post_id":12}, {"lang":"en","post_id":34}, ... ] }
+ */
+add_action('rest_api_init', function () {
+    register_rest_route(CALLUNA_COMPANION_NAMESPACE, '/i18n/link', [
+        'methods'             => 'POST',
+        'callback'            => 'calluna_companion_rest_i18n_link',
+        'permission_callback' => fn() => current_user_can('edit_posts'),
+    ]);
+});
+
+function calluna_companion_rest_i18n_link(WP_REST_Request $req) {
+    $body        = $req->get_json_params();
+    $source_lang = isset($body['source_lang']) ? sanitize_text_field($body['source_lang']) : '';
+    $posts_in    = (is_array($body) && isset($body['posts']) && is_array($body['posts'])) ? $body['posts'] : null;
+    if ($source_lang === '' || $posts_in === null) {
+        return new WP_Error('bad_request', 'Body braucht { source_lang, posts: [{lang, post_id}] }', ['status' => 400]);
+    }
+
+    // Sanitisieren + validieren (Post muss existieren).
+    $map = []; // lang => post_id
+    foreach ($posts_in as $p) {
+        if (!is_array($p) || empty($p['lang']) || empty($p['post_id'])) {
+            continue;
+        }
+        $lang = sanitize_text_field($p['lang']);
+        $pid  = (int) $p['post_id'];
+        if ($lang === '' || $pid <= 0 || get_post_status($pid) === false) {
+            continue;
+        }
+        $map[$lang] = $pid;
+    }
+    if (count($map) < 2) {
+        return new WP_Error('bad_request', 'Mindestens 2 gültige Posts nötig (Quelle + >=1 Übersetzung)', ['status' => 400]);
+    }
+
+    // --- Polylang ---
+    if (function_exists('pll_set_post_language') && function_exists('pll_save_post_translations')) {
+        foreach ($map as $lang => $pid) {
+            pll_set_post_language($pid, $lang);
+        }
+        pll_save_post_translations($map);
+        return new WP_REST_Response(['ok' => true, 'strategy' => 'polylang', 'linked' => count($map)], 200);
+    }
+
+    // --- WPML ---
+    if (defined('ICL_SITEPRESS_VERSION')) {
+        if (!isset($map[$source_lang])) {
+            return new WP_Error('bad_request', 'source_lang nicht in posts enthalten', ['status' => 400]);
+        }
+        $src_id        = $map[$source_lang];
+        $src_post_type = get_post_type($src_id) ?: 'post';
+        $element_type  = 'post_' . $src_post_type;
+
+        // Quelle zuerst: bestehende trid wiederverwenden, sonst neu anlegen lassen.
+        $trid = apply_filters('wpml_element_trid', null, $src_id, $element_type);
+        do_action('wpml_set_element_language_details', [
+            'element_id'           => $src_id,
+            'element_type'         => $element_type,
+            'trid'                 => $trid ?: null,
+            'language_code'        => $source_lang,
+            'source_language_code' => null,
+        ]);
+        $trid = apply_filters('wpml_element_trid', null, $src_id, $element_type);
+
+        foreach ($map as $lang => $pid) {
+            if ($lang === $source_lang) {
+                continue;
+            }
+            $ptype = get_post_type($pid) ?: 'post';
+            do_action('wpml_set_element_language_details', [
+                'element_id'           => $pid,
+                'element_type'         => 'post_' . $ptype,
+                'trid'                 => $trid,
+                'language_code'        => $lang,
+                'source_language_code' => $source_lang,
+            ]);
+        }
+        return new WP_REST_Response(['ok' => true, 'strategy' => 'wpml', 'linked' => count($map), 'trid' => $trid], 200);
+    }
+
+    // Kein unterstütztes i18n-Plugin — hreflang/Switcher laufen trotzdem über die Companion.
+    return new WP_REST_Response(['ok' => false, 'strategy' => 'none', 'reason' => 'kein Polylang/WPML aktiv'], 200);
+}
 
 /**
  * Erweitert auch die Standard-/wp/v2/posts-Antwort um SEO-Felder, sodass
