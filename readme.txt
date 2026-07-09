@@ -3,7 +3,7 @@ Contributors: callunalabs
 Tags: rest-api, seo, content-pipe, headless, maintenance, monitoring, dashboard
 Requires at least: 6.0
 Tested up to: 6.5
-Stable tag: 0.8.5
+Stable tag: 0.8.6
 License: GPLv2 or later
 Plugin URI: https://github.com/callunaLabs/calluna-companion-wp
 
@@ -82,6 +82,9 @@ Außerdem wird das Feld `calluna_seo` an `/wp-json/wp/v2/posts` registriert,
 sodass es ohne Plugin-Pfad gelesen und geschrieben werden kann.
 
 == Changelog ==
+
+= 0.8.6 =
+* Entfernt: Calluna-Index-Connector (`lib/index-connector.php`) — Feedback-Overlay + `reise_feedback`-CPT + `reise/v1`-REST-Bridge (Feedback/Site/Brand/Categories) + „Calluna Index"-Token-Settings. Feature ersatzlos gestrichen.
 
 = 0.8.5 =
 * Neuer Endpoint `POST /calluna/v1/maintenance/critical-css/regenerate` — löst WP-Rocket Critical-CSS-Neugenerierung aus (clean + rocket_generate_critical_css). Fällt auf action hook zurück wenn Funktion nicht existiert; liefert 400 wenn WP-Rocket nicht aktiv.
