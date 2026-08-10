@@ -3,7 +3,7 @@
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
  * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.8.6
+ * Version:           0.8.7
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.8.6');
+define('CALLUNA_COMPANION_VERSION', '0.8.7');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* ============================================================================
@@ -1413,6 +1413,14 @@ function calluna_companion_maintenance_cache_clear(): WP_REST_Response {
  * REST: POST /calluna/v1/maintenance/plugins/{slug}/update
  * Initialisiert WP_Filesystem (direct mode) und ruft Plugin_Upgrader->upgrade().
  * Liefert from_version/to_version + Upgrader-Messages zurück.
+ *
+ * WICHTIG — Reaktivierung: Plugin_Upgrader::upgrade() hängt `deactivate_plugin_before_upgrade`
+ * ein, das ein aktives Plugin still deaktiviert und nur bei wp_doing_cron() übersprungen wird.
+ * Reaktiviert wird in upgrade() nirgends (active_before/active_after schalten bloß den
+ * Wartungsmodus, ebenfalls nur im Cron) — im Browser-Pfad macht das wp-admin/update.php selbst.
+ * Wir laufen per REST, also weder Cron noch Admin-UI: ohne die Reaktivierung unten bliebe das
+ * Plugin nach JEDEM Update dauerhaft aus. Genau so ist am 2026-08-06 WP Rocket auf
+ * stadtlandmama.de verschwunden und hat die Startseite 5 Tage lang eingefroren.
  */
 function calluna_companion_maintenance_plugin_update(WP_REST_Request $req): WP_REST_Response {
     $slug = sanitize_key((string) $req['slug']);
@@ -1437,6 +1445,8 @@ function calluna_companion_maintenance_plugin_update(WP_REST_Request $req): WP_R
 
     $all          = get_plugins();
     $from_version = $all[$plugin_file]['Version'] ?? '';
+    $was_active   = is_plugin_active($plugin_file);
+    $network_wide = is_multisite() && is_plugin_active_for_network($plugin_file);
 
     // Force-Refresh: WordPress cached die Update-Daten (inkl. Paket-URL) bis zu
     // 12h. Ohne das hier würde eine veraltete/falsche Paket-URL (z.B. aus einem
@@ -1474,6 +1484,28 @@ function calluna_companion_maintenance_plugin_update(WP_REST_Request $req): WP_R
     $result   = $upgrader->upgrade($plugin_file);
     $log      = ob_get_clean();
 
+    // Reaktivieren, falls der Upgrader deaktiviert hat — auch im Fehlerfall, sonst bleibt
+    // die Seite ohne ein vorher aktives Plugin zurück. Silent wie wp-admin/update.php:
+    // deaktiviert wurde ebenfalls silent, also laufen weder Deaktivierungs- noch
+    // Aktivierungs-Hooks; der Zustand bleibt symmetrisch.
+    $reactivated    = false;
+    $reactivate_err = null;
+    if ($was_active && !is_plugin_active($plugin_file)) {
+        $act = activate_plugin($plugin_file, '', $network_wide, true);
+        if (is_wp_error($act)) {
+            $reactivate_err = $act->get_error_message();
+        } else {
+            $reactivated = true;
+        }
+    }
+    $active_after = is_plugin_active($plugin_file);
+    $activation   = [
+        'was_active'       => $was_active,
+        'active_after'     => $active_after,
+        'reactivated'      => $reactivated,
+        'reactivate_error' => $reactivate_err,
+    ];
+
     if (is_wp_error($result)) {
         return new WP_REST_Response([
             'ok'             => false,
@@ -1485,7 +1517,7 @@ function calluna_companion_maintenance_plugin_update(WP_REST_Request $req): WP_R
             'target_version' => $target_version,
             'messages'       => $skin->get_upgrade_messages(),
             'log'            => $log,
-        ], 500);
+        ] + $activation, 500);
     }
     if ($result === false) {
         return new WP_REST_Response([
@@ -1497,21 +1529,26 @@ function calluna_companion_maintenance_plugin_update(WP_REST_Request $req): WP_R
             'target_version' => $target_version,
             'messages'       => $skin->get_upgrade_messages(),
             'log'            => $log,
-        ], 500);
+        ] + $activation, 500);
     }
 
     $all_after  = get_plugins();
     $to_version = $all_after[$plugin_file]['Version'] ?? $target_version;
 
+    // Ein Update, das ein vorher aktives Plugin ausgeschaltet zurücklässt, ist KEIN Erfolg —
+    // ok:false, damit der Monitor die Action als 'partial' statt 'success' wertet.
+    $lost_activation = $was_active && !$active_after;
+
     return new WP_REST_Response([
-        'ok'           => true,
+        'ok'           => !$lost_activation,
+        'error'        => $lost_activation ? 'reactivation_failed' : null,
         'slug'         => $slug,
         'plugin_file'  => $plugin_file,
         'from_version' => $from_version,
         'to_version'   => $to_version,
         'messages'     => $skin->get_upgrade_messages(),
         'updated_at'   => current_time('c'),
-    ], 200);
+    ] + $activation, $lost_activation ? 207 : 200);
 }
 
 /**
