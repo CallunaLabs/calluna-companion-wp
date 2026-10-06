@@ -3,7 +3,7 @@
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
  * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.8.8
+ * Version:           0.8.9
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.8.8');
+define('CALLUNA_COMPANION_VERSION', '0.8.9');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* ============================================================================
@@ -71,6 +71,18 @@ $calluna_companion_update_checker->setBranch('main');
 
 add_filter('wp_is_application_passwords_available', '__return_true', 999);
 add_filter('wp_is_application_passwords_available_for_user', '__return_true', 999, 2);
+
+/*
+ * Profilseite: WP-Core blendet das Formular "Anwendungspasswoerter" aus, sobald
+ * PHP_AUTH_USER gesetzt ist (wp_is_site_protected_by_basic_auth('front')), und
+ * zeigt "scheint die Basis-Authentifizierung zu verwenden". Bei Front-Door-
+ * Basic-Auth vor wp-admin ist das falsch, solange /wp-json/ ohne sie erreichbar
+ * ist (bzw. der Companion-Token genutzt wird). Gleiche Begruendung wie die
+ * Filter oben; Anlegen braucht weiterhin einen angemeldeten Nutzer.
+ */
+add_filter('wp_is_site_protected_by_basic_auth', function ($geschuetzt, $kontext) {
+    return $kontext === 'front' ? false : $geschuetzt;
+}, 999, 2);
 
 /*
  * Anwendungspasswoerter auch dann, wenn ein Plugin den Nutzer zu frueh abfragt.
