@@ -3,7 +3,7 @@ Contributors: callunalabs
 Tags: rest-api, seo, content-pipe, headless, maintenance, monitoring, dashboard
 Requires at least: 6.0
 Tested up to: 6.5
-Stable tag: 0.8.7
+Stable tag: 0.8.8
 License: GPLv2 or later
 Plugin URI: https://github.com/callunaLabs/calluna-companion-wp
 
@@ -82,6 +82,9 @@ Außerdem wird das Feld `calluna_seo` an `/wp-json/wp/v2/posts` registriert,
 sodass es ohne Plugin-Pfad gelesen und geschrieben werden kann.
 
 == Changelog ==
+
+= 0.8.8 =
+* Fix: Anwendungspasswoerter ueber die REST-API scheiterten mit `rest_not_logged_in`, sobald ein Plugin den Nutzer vor `REST_REQUEST` abfragt — WPGraphQL tut das bei `init` auf jeder Anfrage. WordPress prueft Anwendungspasswoerter nur bei API-Anfragen und merkte sich Nutzer 0. Anfragen an `/wp-json/` bzw. `?rest_route=` gelten jetzt von Anfang an als API-Anfrage (`application_password_is_api_request`).
 
 = 0.8.7 =
 * Fix: Plugin-Updates liessen ein vorher aktives Plugin dauerhaft deaktiviert zurueck. `Plugin_Upgrader::upgrade()` haengt `deactivate_plugin_before_upgrade` ein (uebersprungen nur bei `wp_doing_cron()`) und reaktiviert nie — im Browser-Pfad macht das `wp-admin/update.php`. Companion laeuft per REST, also weder Cron noch Admin-UI. Jetzt wird der Aktiv-Zustand vor dem Update gemerkt und danach per `activate_plugin(..., silent)` wiederhergestellt, auch wenn das Update fehlschlaegt.

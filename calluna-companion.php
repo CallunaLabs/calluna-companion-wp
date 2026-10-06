@@ -3,7 +3,7 @@
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
  * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.8.7
+ * Version:           0.8.8
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.8.7');
+define('CALLUNA_COMPANION_VERSION', '0.8.8');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* ============================================================================
@@ -71,6 +71,22 @@ $calluna_companion_update_checker->setBranch('main');
 
 add_filter('wp_is_application_passwords_available', '__return_true', 999);
 add_filter('wp_is_application_passwords_available_for_user', '__return_true', 999, 2);
+
+/*
+ * Anwendungspasswoerter auch dann, wenn ein Plugin den Nutzer zu frueh abfragt.
+ *
+ * WordPress prueft Anwendungspasswoerter nur bei API-Anfragen und erkennt die
+ * erst, wenn REST_REQUEST steht. WPGraphQL (src/Admin/AdminNotices.php) ruft
+ * aber schon bei `init` get_current_user_id() auf -- bei JEDER Anfrage. Dann
+ * steht Nutzer 0 fest und wird gemerkt; jede REST-Anfrage mit Anwendungs-
+ * passwort endet in rest_not_logged_in, selbst mit falschen Daten (statt
+ * incorrect_password). Gefunden 2026-10-06 auf cms.calluna.ai.
+ */
+add_filter('application_password_is_api_request', function ($ist_api) {
+    if ($ist_api) return true;
+    $uri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+    return strpos($uri, '/' . rest_get_url_prefix() . '/') === 0 || isset($_GET['rest_route']);
+});
 
 /*
  * Zusaetzlich: WP-Core prueft auf wp-admin/authorize-application.php DIREKT
