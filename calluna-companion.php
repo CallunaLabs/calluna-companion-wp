@@ -3,7 +3,7 @@
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
  * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.8.9
+ * Version:           0.9.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.8.9');
+define('CALLUNA_COMPANION_VERSION', '0.9.0');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* ============================================================================
@@ -489,6 +489,8 @@ function calluna_companion_rest_info(): WP_REST_Response {
         'language'          => get_bloginfo('language'),
         'seo_plugin'        => $plugin,
         'seo_meta_keys'     => calluna_companion_seo_meta_keys($plugin),
+        // 0.9.0: JSON-LD aus der Content Pipe im <head> (siehe calluna_companion_schema_*).
+        'features'          => ['schema'],
         'plugins'           => $detected,
         'i18n'              => $i18n,
         'rest_namespaces'   => $namespaces,
@@ -601,6 +603,10 @@ function calluna_companion_rest_update_post(WP_REST_Request $req): WP_REST_Respo
         calluna_companion_write_seo($id, $body['seo']);
     }
 
+    if (array_key_exists('schema', $body)) {
+        calluna_companion_write_schema($id, $body['schema']);
+    }
+
     if (isset($body['primary_category'])) {
         $primary = (int) $body['primary_category'];
         $plugin  = calluna_companion_detect_seo_plugin();
@@ -640,6 +646,7 @@ function calluna_companion_rest_get_post(WP_REST_Request $req): WP_REST_Response
         'categories'     => array_map(fn($c) => ['id' => $c->term_id, 'name' => $c->name, 'slug' => $c->slug], $cats),
         'tags'           => array_map(fn($t) => ['id' => $t->term_id, 'name' => $t->name, 'slug' => $t->slug], $tags),
         'seo'            => calluna_companion_read_seo($p->ID),
+        'schema'         => calluna_companion_read_schema($p->ID),
     ], 200);
 }
 
@@ -803,6 +810,130 @@ function calluna_companion_get_hreflang(int $post_id): array {
     $decoded = json_decode($raw, true);
     return is_array($decoded) ? $decoded : [];
 }
+
+// ============================================================================
+// Strukturierte Daten (JSON-LD) aus der Content Pipe — seit 0.9.0
+// ============================================================================
+//
+// Die Pipe schickt je Beitrag { article, faq_page } (schema.org-Knoten). Wir
+// speichern sie als Post-Meta und geben sie im <head> aus — nicht im Inhalt.
+//
+//   - Ohne SEO-Plugin: eigenes <script type="application/ld+json"> mit
+//     @graph [article, faq_page].
+//   - Mit Yoast / Rank Math / AIOSEO: die geben schon ein Artikel-Schema aus.
+//     Wir hängen nur die FAQPage in DEREN Graph ein, statt ein zweites
+//     Dokument daneben zu stellen. Das Artikel-Schema der Pipe übernimmt
+//     ohnehin deren Einstellungen und wird dort nicht ausgegeben.
+
+const CALLUNA_COMPANION_SCHEMA_META = '_calluna_schema';
+const CALLUNA_COMPANION_SCHEMA_MAX_BYTES = 65536;
+
+/**
+ * Speichert { article, faq_page }. null / leeres Objekt löscht. Nur Objekte
+ * mit "@type" werden angenommen; Größe gedeckelt.
+ */
+function calluna_companion_write_schema(int $post_id, $schema): void {
+    if (!is_array($schema)) {
+        delete_post_meta($post_id, CALLUNA_COMPANION_SCHEMA_META);
+        return;
+    }
+    $clean = [];
+    foreach (['article', 'faq_page'] as $key) {
+        if (isset($schema[$key]) && is_array($schema[$key]) && isset($schema[$key]['@type'])) {
+            $clean[$key] = $schema[$key];
+        }
+    }
+    if (empty($clean)) {
+        delete_post_meta($post_id, CALLUNA_COMPANION_SCHEMA_META);
+        return;
+    }
+    $json = wp_json_encode($clean, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if (!$json || strlen($json) > CALLUNA_COMPANION_SCHEMA_MAX_BYTES) {
+        return;
+    }
+    // wp_slash: update_post_meta entfernt sonst die Backslashes aus dem JSON.
+    update_post_meta($post_id, CALLUNA_COMPANION_SCHEMA_META, wp_slash($json));
+}
+
+function calluna_companion_read_schema(int $post_id): ?array {
+    $raw = get_post_meta($post_id, CALLUNA_COMPANION_SCHEMA_META, true);
+    if (!is_string($raw) || $raw === '') {
+        return null;
+    }
+    $data = json_decode($raw, true);
+    return is_array($data) ? $data : null;
+}
+
+/** Knoten ohne eigenes @context (im @graph steht es einmal oben). */
+function calluna_companion_schema_node(array $node): array {
+    unset($node['@context']);
+    return $node;
+}
+
+/** Schema des aktuell angezeigten Beitrags (nur Einzelansicht). */
+function calluna_companion_current_schema(): ?array {
+    if (!is_singular()) {
+        return null;
+    }
+    $post_id = get_queried_object_id();
+    return $post_id ? calluna_companion_read_schema($post_id) : null;
+}
+
+// Ohne SEO-Plugin: eigenes JSON-LD im <head>.
+add_action('wp_head', function () {
+    if (calluna_companion_detect_seo_plugin() !== 'none') {
+        return;
+    }
+    $schema = calluna_companion_current_schema();
+    if (!$schema) {
+        return;
+    }
+    $graph = [];
+    foreach (['article', 'faq_page'] as $key) {
+        if (!empty($schema[$key])) {
+            $graph[] = calluna_companion_schema_node($schema[$key]);
+        }
+    }
+    if (empty($graph)) {
+        return;
+    }
+    $json = wp_json_encode(
+        ['@context' => 'https://schema.org', '@graph' => $graph],
+        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG
+    );
+    if ($json) {
+        // data-calluna-jsonld: daran erkennt die Pipe ihre eigene Ausgabe
+        // (und hält sie nicht für ein Theme-Schema).
+        echo "\n<script type=\"application/ld+json\" data-calluna-jsonld=\"head\">" . $json . "</script>\n";
+    }
+}, 20);
+
+// Yoast: FAQPage in Yoasts Graph (Artikel kommt von Yoast selbst).
+add_filter('wpseo_schema_graph', function ($graph) {
+    $schema = calluna_companion_current_schema();
+    if (is_array($graph) && !empty($schema['faq_page'])) {
+        $graph[] = calluna_companion_schema_node($schema['faq_page']);
+    }
+    return $graph;
+}, 20);
+
+// Rank Math: FAQPage als zusätzlicher Eintrag in dessen JSON-LD.
+add_filter('rank_math/json_ld', function ($data) {
+    $schema = calluna_companion_current_schema();
+    if (is_array($data) && !empty($schema['faq_page'])) {
+        $data['CallunaFAQPage'] = calluna_companion_schema_node($schema['faq_page']);
+    }
+    return $data;
+}, 99);
+
+// AIOSEO: FAQPage an dessen Graphen anhängen.
+add_filter('aioseo_schema_output', function ($graphs) {
+    $schema = calluna_companion_current_schema();
+    if (is_array($graphs) && !empty($schema['faq_page'])) {
+        $graphs[] = calluna_companion_schema_node($schema['faq_page']);
+    }
+    return $graphs;
+}, 20);
 
 // hreflang-<link>-Tags im <head> für Einzel-Posts/Seiten (reziprok, inkl. x-default).
 add_action('wp_head', function () {

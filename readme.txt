@@ -3,7 +3,7 @@ Contributors: callunalabs
 Tags: rest-api, seo, content-pipe, headless, maintenance, monitoring, dashboard
 Requires at least: 6.0
 Tested up to: 6.5
-Stable tag: 0.8.9
+Stable tag: 0.9.0
 License: GPLv2 or later
 Plugin URI: https://github.com/callunaLabs/calluna-companion-wp
 
@@ -82,6 +82,11 @@ Außerdem wird das Feld `calluna_seo` an `/wp-json/wp/v2/posts` registriert,
 sodass es ohne Plugin-Pfad gelesen und geschrieben werden kann.
 
 == Changelog ==
+
+= 0.9.0 =
+* Neu: Strukturierte Daten (JSON-LD) aus der Content Pipe im <head>. `POST /calluna/v1/posts/{id}` nimmt `schema: { article, faq_page }` an und speichert es als Post-Meta `_calluna_schema`.
+* Ohne SEO-Plugin gibt das Plugin Artikel (NewsArticle bzw. Typ aus der Pipe) und FAQPage als eigenes JSON-LD aus. Mit Yoast, Rank Math oder AIOSEO hängt es nur die FAQPage in deren Graph ein — das Artikel-Schema kommt dort weiter vom SEO-Plugin, nichts doppelt.
+* `/info` meldet `features: ["schema"]`.
 
 = 0.8.9 =
 * Fix: Auf der Profilseite fehlte das Formular „Anwendungspasswörter" hinter Front-Door-Basic-Auth („scheint die Basis-Authentifizierung zu verwenden"). `wp_is_site_protected_by_basic_auth('front')` meldet jetzt `false` — wie bereits die Verfügbarkeits-Filter.
