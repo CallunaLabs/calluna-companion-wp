@@ -24,6 +24,9 @@
  *   POST /wp-json/calluna/v1/maintenance/cache/raidboxes   Dedizierter Raidboxes Varnish/Nginx Purge (best-effort, multi-mechanism)
  *   POST /wp-json/calluna/v1/maintenance/plugins/{slug}/update   Triggert wp_update_plugin via Plugin_Upgrader
  *
+ * Endpoints (Calluna Index, siehe index/ + module/):
+ *   GET  /wp-json/calluna/v1/index/build-konfig            Seitenprofil-Revision, effektive Module, Consent für den Frontend-Build
+ *
  * Sicherheit: Alle Endpoints erfordern WordPress Application-Password Auth (Basic Auth).
  * Posts: `edit_posts`. Maintenance: `manage_options` bzw. `update_plugins`.
  *

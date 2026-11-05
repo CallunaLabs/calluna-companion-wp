@@ -57,6 +57,12 @@ Content Pipe:
 * `GET  /wp-json/calluna/v1/posts/{id}`
 * `POST /wp-json/calluna/v1/posts/{id}` (Update inkl. SEO + Featured Image)
 
+Calluna Index (Frontend-Build):
+
+* `GET  /wp-json/calluna/v1/index/build-konfig[?aktualisieren=1]`
+  Seitenprofil-Revision, effektive Module, Consent-Konfiguration (manage_options
+  oder X-Calluna-Token).
+
 Dashboard Maintenance:
 
 * `GET  /wp-json/calluna/v1/maintenance/health`
@@ -82,6 +88,16 @@ Außerdem wird das Feld `calluna_seo` an `/wp-json/wp/v2/posts` registriert,
 sodass es ohne Plugin-Pfad gelesen und geschrieben werden kann.
 
 == Changelog ==
+
+= Unveröffentlicht (Branch index-module, vorgeschlagen 0.10.0) =
+* Neu: Calluna Index. Einstellungen → „Calluna Index" (gleiche Adresse wie bisher, Reiter „Index & Module" und „Companion-Token"): Site-ID, Site-Token, Index-URL, „Profil jetzt abrufen". Alternativ per wp-config `CALLUNA_INDEX_SITE_ID`, `CALLUNA_INDEX_SITE_TOKEN`, `CALLUNA_INDEX_URL`.
+* Seitenprofil (Vertrag v1) wird stündlich per WP-Cron und beim Speichern geholt (Bearer + ETag), als Option `calluna_index_profil` gespeichert (kein autoload). Fehler nur auf der Einstellungsseite; das letzte gültige Profil bleibt.
+* Modul-System: je Modul „Vorgabe aus Index" / „an" / „aus"; ohne Einrichtung sind alle Module aus.
+* Modul `consent`: Consent-Konfiguration aus dem Profil für den Build, keine Ausgabe im CMS.
+* Modul `headless`: Frontend-Umleitung (302), „Ansehen"-Links aufs Frontend, Build-Auslöser (Webhook, GitHub-Dispatch oder Auftragsdatei; entprellt mit Nachlauf), Knopf „↻ Seite neu bauen", Build-Status. Erkennt die Projekt-mu-plugins (paqato, calluna.ai) und lässt den jeweiligen Teil dann aus.
+* Module `seo`, `weiterleitungen`, `indexnow` vorbereitet (nur Einstellungen, ohne Funktion). Konzept SEO: `docs/seo-modul.md`.
+* Neuer Endpoint `GET /calluna/v1/index/build-konfig` (manage_options oder X-Calluna-Token). Kein neuer REST-Namespace; `/info`, `/posts`, `/posts/{id}`, `calluna_seo` und alle Maintenance-Endpoints unverändert.
+* Robust bei Auto-Update: fehlt `index/` im Paket oder wirft es beim Laden, läuft der Kern unverändert weiter und die alte Token-Seite bleibt.
 
 = 0.9.0 =
 * Neu: Strukturierte Daten (JSON-LD) aus der Content Pipe im <head>. `POST /calluna/v1/posts/{id}` nimmt `schema: { article, faq_page }` an und speichert es als Post-Meta `_calluna_schema`.
