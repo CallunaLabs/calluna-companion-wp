@@ -1983,3 +1983,21 @@ add_action('rest_api_init', function () {
     ]);
 });
 
+/* ============================================================================
+ * CALLUNA INDEX — Seitenprofil, Module, build-konfig (unveröffentlicht, Branch index-module)
+ * ----------------------------------------------------------------------------
+ * Liegt in index/ + module/. Fail-soft geladen: fehlt der Ordner (z. B. ein
+ * Release-ZIP ohne index/) oder wirft er beim Laden, laufen Kern, Content-Pipe-
+ * und Dashboard-Endpunkte unverändert weiter; die Einstellungsseite fällt auf
+ * die alte Token-Seite zurück. Doku: README.md → „Calluna Index".
+ * ========================================================================== */
+
+$calluna_index_lader = __DIR__ . '/index/index.php';
+if (is_readable($calluna_index_lader)) {
+    try {
+        require_once $calluna_index_lader;
+    } catch (\Throwable $e) {
+        error_log('[Calluna Index] nicht geladen: ' . $e->getMessage());
+    }
+}
+unset($calluna_index_lader);
