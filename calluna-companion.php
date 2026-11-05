@@ -221,14 +221,18 @@ register_activation_hook(__FILE__, function () {
     calluna_companion_get_or_create_secret();
 });
 
-/* WP-Admin Settings → Calluna Companion */
+/* WP-Admin Settings → Calluna Index (bis 0.9.0: „Calluna Companion")
+ * Slug bleibt `calluna-companion`, damit bestehende Links/Anleitungen
+ * (options-general.php?page=calluna-companion) weiter funktionieren. Fehlt das
+ * Index-Modul (index/), bleibt die alte Token-Seite. */
 add_action('admin_menu', function () {
+    $mit_index = defined('CALLUNA_INDEX_GELADEN') && function_exists('calluna_index_einstellungsseite');
     add_options_page(
-        'Calluna Companion',
-        'Calluna Companion',
+        $mit_index ? 'Calluna Index' : 'Calluna Companion',
+        $mit_index ? 'Calluna Index' : 'Calluna Companion',
         'manage_options',
         'calluna-companion',
-        'calluna_companion_settings_page'
+        $mit_index ? 'calluna_index_einstellungsseite' : 'calluna_companion_settings_page'
     );
 });
 
@@ -236,17 +240,18 @@ function calluna_companion_settings_page(): void {
     if (!current_user_can('manage_options')) {
         wp_die('Insufficient permissions.');
     }
-    if (
-        isset($_POST['calluna_companion_action']) &&
-        $_POST['calluna_companion_action'] === 'regenerate' &&
-        check_admin_referer('calluna_companion_regen')
-    ) {
-        update_option(CALLUNA_COMPANION_TOKEN_OPTION, wp_generate_password(64, false, false), false);
-        echo '<div class="notice notice-success is-dismissible"><p>Token regeneriert. Bestehende Calluna-Verbindungen muessen den neuen Token uebernehmen.</p></div>';
-    }
-    $secret = calluna_companion_get_or_create_secret();
     ?>
     <div class="wrap">
+        <?php calluna_companion_logo_html('Companion'); ?>
+        <h1 class="screen-reader-text">Calluna Companion</h1>
+        <?php calluna_companion_token_bereich(); ?>
+    </div>
+    <?php
+}
+
+/** Calluna-Wortmarke + Untertitel im Kopf der Einstellungsseite. */
+function calluna_companion_logo_html(string $untertitel): void {
+    ?>
         <div style="display:flex;align-items:center;gap:14px;margin:10px 0 6px;">
             <svg viewBox="0 0 169.02 27.44" fill="#6933d9" role="img" aria-label="Calluna" style="height:26px;width:auto;">
                 <path d="M12.77,20.51c1.75,0,3.2-.47,4.35-1.4.76-.62,1.37-1.42,1.82-2.4s1.46-1.63,2.56-1.63h3.33c-.5,3.14-1.85,5.66-4.03,7.56-2.18,1.9-4.86,2.84-8.02,2.84-3.6,0-6.63-1.21-9.08-3.62-2.46-2.41-3.69-5.45-3.69-9.12S1.23,6.03,3.69,3.62C6.15,1.21,9.18,0,12.77,0,15.94,0,18.61.95,20.8,2.84c2.18,1.9,3.53,4.41,4.03,7.56h-5.33c-.43-1.75-1.22-3.09-2.38-4.03s-2.6-1.4-4.35-1.4c-2.18,0-3.98.72-5.4,2.16-1.42,1.44-2.12,3.31-2.12,5.61s.71,4.17,2.12,5.61,3.21,2.16,5.4,2.16Z"></path>
@@ -260,9 +265,23 @@ function calluna_companion_settings_page(): void {
                 <polygon points="149.99 24.97 159.83 .5 154.93 .5 144.45 24.97 149.99 24.97"></polygon>
                 <polygon points="30.16 24.97 37.52 6.73 45.23 24.97 50.44 24.97 40 .5 35.11 .5 24.62 24.97 30.16 24.97"></polygon>
             </svg>
-            <span style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#6b7280;">Companion</span>
+            <span style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#6b7280;"><?php echo esc_html($untertitel); ?></span>
         </div>
-        <h1 class="screen-reader-text">Calluna Companion</h1>
+    <?php
+}
+
+/** Companion-Token anzeigen + regenerieren (unverändert seit 0.7, nur ausgelagert). */
+function calluna_companion_token_bereich(): void {
+    if (
+        isset($_POST['calluna_companion_action']) &&
+        $_POST['calluna_companion_action'] === 'regenerate' &&
+        check_admin_referer('calluna_companion_regen')
+    ) {
+        update_option(CALLUNA_COMPANION_TOKEN_OPTION, wp_generate_password(64, false, false), false);
+        echo '<div class="notice notice-success is-dismissible"><p>Token regeneriert. Bestehende Calluna-Verbindungen muessen den neuen Token uebernehmen.</p></div>';
+    }
+    $secret = calluna_companion_get_or_create_secret();
+    ?>
         <p>Dieser Token erlaubt Calluna Content Pipe (https://content-pipe.calluna.ai), diese Site auch dann zu erreichen, wenn sie hinter einem Front-Door-Basic-Auth liegt (z.B. Staging-Schutz).</p>
         <p><strong>Wie zu benutzen:</strong> Token kopieren → in Content Pipe unter <code>Admin → Tenant → Domain-Editor → Companion-Token</code> einfuegen → Speichern.</p>
         <h2>Token</h2>
@@ -282,7 +301,6 @@ function calluna_companion_settings_page(): void {
             <input type="hidden" name="calluna_companion_action" value="regenerate" />
             <button type="submit" class="button button-secondary" onclick="return confirm('Token wirklich neu generieren? Bestehende Calluna-Verbindungen brechen bis Du den neuen Token in Content Pipe nachtraegst.');">Token neu generieren</button>
         </form>
-    </div>
     <?php
 }
 
@@ -1964,3 +1982,4 @@ add_action('rest_api_init', function () {
         'permission_callback' => function () { return current_user_can('manage_options'); },
     ]);
 });
+
