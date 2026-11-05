@@ -39,6 +39,9 @@ require_once __DIR__ . '/admin.php';
 
 require_once dirname(__DIR__) . '/module/consent.php';
 require_once dirname(__DIR__) . '/module/headless.php';
+require_once dirname(__DIR__) . '/module/seo.php';
+require_once dirname(__DIR__) . '/module/weiterleitungen.php';
+require_once dirname(__DIR__) . '/module/indexnow.php';
 
 calluna_index_starten();
 
