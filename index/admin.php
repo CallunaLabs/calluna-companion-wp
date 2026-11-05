@@ -375,7 +375,7 @@ function calluna_index_admin_speichern(): void {
     }
     check_admin_referer('calluna_index_speichern');
 
-    $aktion = isset($_POST['aktion']) ? sanitize_key(wp_unslash($_POST['aktion'])) : 'speichern';
+    $aktion = isset($_POST['aktion']) && is_string($_POST['aktion']) ? sanitize_key(wp_unslash($_POST['aktion'])) : 'speichern';
 
     if ($aktion === 'abrufen') {
         $stand = calluna_index_profil_abrufen(true);
@@ -387,7 +387,7 @@ function calluna_index_admin_speichern(): void {
     $e = calluna_index_einstellungen();
     $site_vorher = calluna_index_site_id();
 
-    if (!defined('CALLUNA_INDEX_SITE_ID') && isset($_POST['site_id'])) {
+    if (!defined('CALLUNA_INDEX_SITE_ID') && isset($_POST['site_id']) && is_string($_POST['site_id'])) {
         $site = strtolower(trim(sanitize_text_field(wp_unslash($_POST['site_id']))));
         if ($site === '' || calluna_index_site_id_gueltig($site)) {
             $e['site_id'] = $site;
@@ -396,7 +396,7 @@ function calluna_index_admin_speichern(): void {
         }
     }
 
-    if (!defined('CALLUNA_INDEX_URL') && isset($_POST['index_url'])) {
+    if (!defined('CALLUNA_INDEX_URL') && isset($_POST['index_url']) && is_string($_POST['index_url'])) {
         $roh = trim(wp_unslash($_POST['index_url']));
         if ($roh === '') {
             $e['index_url'] = '';
@@ -414,7 +414,7 @@ function calluna_index_admin_speichern(): void {
         if (!empty($_POST['token_loeschen'])) {
             delete_option(CALLUNA_INDEX_TOKEN_OPTION);
         } else {
-            $token = isset($_POST['site_token']) ? trim(wp_unslash($_POST['site_token'])) : '';
+            $token = isset($_POST['site_token']) && is_string($_POST['site_token']) ? trim(wp_unslash($_POST['site_token'])) : '';
             if ($token !== '') {
                 if (preg_match('/^[\x21-\x7e]{16,512}$/', $token)) {
                     update_option(CALLUNA_INDEX_TOKEN_OPTION, $token, false);
