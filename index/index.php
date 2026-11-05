@@ -37,6 +37,7 @@ require_once __DIR__ . '/profil.php';
 require_once __DIR__ . '/rest.php';
 require_once __DIR__ . '/admin.php';
 
+require_once dirname(__DIR__) . '/module/consent.php';
 
 calluna_index_starten();
 
