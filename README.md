@@ -89,6 +89,7 @@ Zustand je Modul: **Vorgabe aus Index** (Standard) / **an** / **aus**. Effektiv 
 | `seo` | vorbereitet | Ersatz für Rank Math — Konzept: [`docs/seo-modul.md`](docs/seo-modul.md). |
 | `weiterleitungen` | vorbereitet | Weiterleitungsregeln zentral. |
 | `indexnow` | vorbereitet | Änderungen per IndexNow melden. |
+| `sprachen` | fertig (Branch `modul-sprachen`) | Mehrsprachigkeit ohne WPML/Polylang, für Headless-Seiten. Details unten. |
 
 Vorbereitete Module haben nur Einstellungen; sie bleiben auch bei „an" effektiv aus („kommt nach dem Livegang").
 
@@ -116,6 +117,28 @@ Vorbereitete Module haben nur Einstellungen; sie bleiben auch bei „an" effekti
   - `github`: `POST https://api.github.com/repos/OWNER/REPO/dispatches` mit `{event_type, client_payload}`; Hook-Token Pflicht.
   - `datei`: schreibt `<Verzeichnis>/auftrag` (wie `paqato-ausspielen.php`), zeigt `<Verzeichnis>/stand.txt` als „Letzter Bau".
 - **Verträglich mit den mu-plugins**: Ist `paqato-headless.php` bzw. `calluna-frontend.php` aktiv, bleibt die Umleitung des Moduls aus; ist `paqato-ausspielen.php` bzw. `calluna-ausspielen.php` aktiv, bleibt der Build-Auslöser aus. Die Einstellungsseite sagt es. Eigene Projekte können das über die Filter `calluna_index_headless_fremde_umleitung` / `calluna_index_headless_fremder_bau` melden.
+
+#### `sprachen` im Detail
+
+Ersetzt WPML/Polylang auf Headless-Seiten. Sprachrouting, Sprachumschalter und hreflang baut das Frontend aus diesen Daten; WordPress liefert keine Seiten unter `/en/…` aus.
+
+| Einstellung | Profil-Schlüssel | Standard |
+|---|---|---|
+| Sprachen (`de,en,es,fr`) | `sprachen` | — |
+| Standardsprache | `standard` | erste der Liste |
+| Präfix auch für die Standardsprache | `praefixStandard` | aus |
+| Inhaltstypen | — | `post,page` |
+
+- **Daten**: je Dokument und Begriff `_calluna_lang` und `_calluna_gruppe`. Ohne Sprache gilt die Standardsprache.
+- **REST**: Feld `calluna_sprache` an Dokumenten und Begriffen der Inhaltstypen: `{ lang, gruppe, uebersetzungen: { <lang>: {id, slug, titel, status, link} } }`. Schreibbar: `lang`, `gruppe`, `verknuepfen_mit` (ID; in dessen Gruppe aufnehmen). Filter `?calluna_lang=xx` für Listen.
+- **Slugs**: gleicher Slug in verschiedenen Sprachen erlaubt (`/en/contact/`, `/fr/contact/`); `-2` nur bei Kollision in derselben Sprache. Wird die Sprache später geändert, fällt ein unnötiges `-2` weg.
+- **Links**: `get_permalink()`/`get_term_link()` mit Sprachpräfix (`/en/…`).
+- **Editor**: Seitenleiste „Sprache" (Sprache wählen, Übersetzungen öffnen, „Übersetzung anlegen" = Entwurf mit Titel, Inhalt, Auszug, Beitragsbild, übersetzten Begriffen und Eltern-Seite). Listen: Spalte und Filter „Sprache". Begriffe: Sprachauswahl und „Verknüpfen mit".
+- `POST /calluna/v1/sprachen/uebersetzung` `{quelle, lang}` → `{id, neu, bearbeiten}` (Cap `edit_posts`).
+- `POST /calluna/v1/sprachen/uebernehmen` `{trocken=true, ueberschreiben=false}` → übernimmt die Zuordnung aus `{prefix}icl_translations` (WPML); Gruppe `wpml-<trid>`. Läuft auch, solange WPML noch aktiv ist (Cap `manage_options`).
+- **Content Pipe**: Läuft das Modul, melden `/info` `i18n.active = "calluna"`, `/i18n/link` verknüpft über die Gruppe (`strategy: "calluna"`), `/i18n/overview` liefert die Gruppen.
+- Blockiert, solange WPML oder Polylang aktiv ist.
+- Abnahmetest gegen ein echtes WordPress: `docs/test-sprachen.php` (`wp --user=<admin> eval-file`), legt Testdaten an und räumt auf.
 
 Filter/Aktionen: `calluna_index_module` (eigene Module), `calluna_index_headless_umleiten`, `calluna_index_headless_ziel`, `calluna_index_headless_inhaltstypen`, `calluna_index_profil_geaendert`, `calluna_index_bau_ausgeloest`.
 
