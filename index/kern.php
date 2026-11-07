@@ -129,6 +129,7 @@ function calluna_index_module(): array {
         'Calluna_Index_Modul_Seo',
         'Calluna_Index_Modul_Weiterleitungen',
         'Calluna_Index_Modul_Indexnow',
+        'Calluna_Index_Modul_Sprachen',
     ];
     foreach ($klassen as $klasse) {
         if (class_exists($klasse)) {

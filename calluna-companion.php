@@ -481,10 +481,13 @@ function calluna_companion_rest_info(): WP_REST_Response {
         'translatepress' => defined('TRP_PLUGIN_VERSION') || class_exists('TRP_Translate_Press'),
         'weglot'         => defined('WEGLOT_VERSION') || function_exists('weglot_get_service'),
     ];
-    $i18n_active = ($i18n['polylang'] || $i18n['polylang_pro']) ? 'polylang'
+    $calluna_sprachen = function_exists('calluna_sprachen') ? calluna_sprachen() : null;
+    $i18n['calluna'] = $calluna_sprachen !== null;
+    $i18n_active = $calluna_sprachen !== null ? 'calluna'
+        : (($i18n['polylang'] || $i18n['polylang_pro']) ? 'polylang'
         : ($i18n['wpml'] ? 'wpml'
         : ($i18n['translatepress'] ? 'translatepress'
-        : ($i18n['weglot'] ? 'weglot' : null)));
+        : ($i18n['weglot'] ? 'weglot' : null))));
     $i18n['active']        = $i18n_active;
     $i18n['site_language'] = get_bloginfo('language');
     // Polylang-Sprachen (falls vorhanden) — Slugs für die Ziel-Zuordnung.
@@ -493,7 +496,9 @@ function calluna_companion_rest_info(): WP_REST_Response {
         : [];
     // Generische Sprachliste (Polylang ODER WPML) — Slugs/Codes für die Ziel-Auswahl.
     $i18n_languages = [];
-    if (function_exists('pll_languages_list')) {
+    if ($calluna_sprachen !== null) {
+        $i18n_languages = $calluna_sprachen->liste();
+    } elseif (function_exists('pll_languages_list')) {
         $i18n_languages = array_values(pll_languages_list());
     } elseif (defined('ICL_SITEPRESS_VERSION')) {
         $wpml_langs = apply_filters('wpml_active_languages', null, ['skip_missing' => 0]);
@@ -1051,6 +1056,13 @@ function calluna_companion_rest_i18n_link(WP_REST_Request $req) {
         return new WP_Error('bad_request', 'Mindestens 2 gültige Posts nötig (Quelle + >=1 Übersetzung)', ['status' => 400]);
     }
 
+    // --- Calluna Index, Modul sprachen (ersetzt WPML/Polylang auf Index-Seiten) ---
+    $calluna_sprachen = function_exists('calluna_sprachen') ? calluna_sprachen() : null;
+    if ($calluna_sprachen !== null) {
+        $gruppe = $calluna_sprachen->verknuepfen($map, $source_lang);
+        return new WP_REST_Response(['ok' => true, 'strategy' => 'calluna', 'linked' => count($map), 'gruppe' => $gruppe], 200);
+    }
+
     // --- Polylang ---
     if (function_exists('pll_set_post_language') && function_exists('pll_save_post_translations')) {
         foreach ($map as $lang => $pid) {
@@ -1122,6 +1134,11 @@ function calluna_companion_rest_i18n_overview(WP_REST_Request $req): WP_REST_Res
     $page      = max(1, (int) ($req['page'] ?? 1));
     $post_type = sanitize_key($req['post_type'] ?? 'post');
     $el_type   = 'post_' . $post_type;
+
+    $calluna_sprachen = function_exists('calluna_sprachen') ? calluna_sprachen() : null;
+    if ($calluna_sprachen !== null) {
+        return calluna_companion_i18n_overview_calluna($calluna_sprachen, $post_type, $per_page, $page);
+    }
 
     $is_pll  = function_exists('pll_languages_list') && function_exists('pll_get_post_translations');
     $is_wpml = defined('ICL_SITEPRESS_VERSION');
@@ -1204,6 +1221,52 @@ function calluna_companion_rest_i18n_overview(WP_REST_Request $req): WP_REST_Res
         'plugin'       => $is_pll ? 'polylang' : ($is_wpml ? 'wpml' : null),
         'default_lang' => $default_lang,
         'languages'    => $languages,
+        'total'        => (int) $q->found_posts,
+        'page'         => $page,
+        'per_page'     => $per_page,
+        'rows'         => $rows,
+    ], 200);
+}
+
+/** Übersicht für das Modul „sprachen": Zeilen = Dokumente der Standardsprache. */
+function calluna_companion_i18n_overview_calluna($sprachen, string $post_type, int $per_page, int $page): WP_REST_Response {
+    $standard = $sprachen->standard();
+    $q = new WP_Query([
+        'post_type'      => $post_type,
+        'post_status'    => 'publish',
+        'posts_per_page' => $per_page,
+        'paged'          => $page,
+        'orderby'        => 'date',
+        'order'          => 'DESC',
+        'meta_query'     => [[
+            'relation' => 'OR',
+            ['key' => CALLUNA_SPRACHEN_META_LANG, 'value' => $standard],
+            ['key' => CALLUNA_SPRACHEN_META_LANG, 'compare' => 'NOT EXISTS'],
+        ]],
+    ]);
+    $rows = [];
+    foreach ($q->posts as $post) {
+        $langs = [];
+        foreach ($sprachen->uebersetzungen($post->ID) as $lang => $pid) {
+            $langs[$lang] = [
+                'id'     => (int) $pid,
+                'title'  => get_the_title($pid),
+                'link'   => get_permalink($pid),
+                'status' => get_post_status($pid),
+            ];
+        }
+        $rows[] = [
+            'title'       => get_the_title($post),
+            'source_lang' => $standard,
+            'source_id'   => $post->ID,
+            'source_link' => get_permalink($post),
+            'langs'       => $langs,
+        ];
+    }
+    return new WP_REST_Response([
+        'plugin'       => 'calluna',
+        'default_lang' => $standard,
+        'languages'    => $sprachen->liste(),
         'total'        => (int) $q->found_posts,
         'page'         => $page,
         'per_page'     => $per_page,

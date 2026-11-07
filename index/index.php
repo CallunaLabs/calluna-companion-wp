@@ -42,6 +42,7 @@ require_once dirname(__DIR__) . '/module/headless.php';
 require_once dirname(__DIR__) . '/module/seo.php';
 require_once dirname(__DIR__) . '/module/weiterleitungen.php';
 require_once dirname(__DIR__) . '/module/indexnow.php';
+require_once dirname(__DIR__) . '/module/sprachen.php';
 
 calluna_index_starten();
 
