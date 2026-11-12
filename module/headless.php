@@ -143,6 +143,33 @@ class Calluna_Index_Modul_Headless extends Calluna_Index_Modul {
                 'beschriftung' => 'Neu bauen, wenn eine neue Profil-Revision ankommt (z. B. geänderte Consent-Texte)',
                 'standard'     => '1',
             ],
+            'vorschau' => [
+                'typ'      => 'auswahl',
+                'titel'    => 'Vorschau im Frontend-Design',
+                'standard' => 'aus',
+                'optionen' => [
+                    'aus'   => 'aus — WordPress-Vorschau wie bisher',
+                    'build' => 'Vorschau-Build (das Frontend baut die eine Seite)',
+                    'ssr'   => 'SSR-Vorschau (signierter Link auf eine Vorschau-Route des Frontends)',
+                ],
+                'hilfe'    => 'Was der Knopf „Vorschau" im Editor zeigt. <strong>Vorschau-Build</strong>: Entwurf geht als Auftrag an das Frontend (Auftragsdatei <code>&lt;Verzeichnis&gt;/vorschau/&lt;code&gt;.json</code> bzw. Vorschau-Hook), eine Warteseite leitet weiter, sobald die Seite unter der Vorschau-Adresse liegt. <strong>SSR-Vorschau</strong>: Link <code>…?id=&amp;exp=&amp;token=</code> mit <code>token = hash_hmac(\'sha256\', "id.exp", Geheimnis)</code>; das Frontend holt den Entwurf selbst.',
+            ],
+            'vorschauAdresse' => [
+                'typ'   => 'text',
+                'titel' => 'Vorschau-Adresse',
+                'hilfe' => 'Platzhalter <code>{frontend}</code>, <code>{code}</code> (Build) bzw. <code>{id}</code>, <code>{exp}</code>, <code>{token}</code> (SSR). Leer = <code>{frontend}/_vorschau/{code}/</code> (Build) bzw. <code>{frontend}/preview/?id={id}&amp;exp={exp}&amp;token={token}</code> (SSR).',
+            ],
+            'vorschauHook' => [
+                'typ'   => 'ziel',
+                'titel' => 'Vorschau-Hook',
+                'hilfe' => 'Nur Vorschau-Build. Webhook-URL (POST) eigens für Vorschauen — <strong>nicht</strong> der Deploy-Hook, sonst löst jede Vorschau ein Ausspielen aus. Leer = bei Hook-Art „Auftragsdatei" dasselbe Verzeichnis wie der Build-Hook (Unterordner <code>vorschau/</code>).',
+            ],
+            'vorschauGeheimnis' => [
+                'typ'    => 'passwort',
+                'geheim' => true,
+                'titel'  => 'Vorschau-Geheimnis',
+                'hilfe'  => 'Nur SSR-Vorschau: gemeinsames Geheimnis mit dem Frontend (z. B. <code>CALLUNA_PREVIEW_SECRET</code>). Nur lokal.',
+            ],
         ];
     }
 
@@ -206,6 +233,16 @@ class Calluna_Index_Modul_Headless extends Calluna_Index_Modul {
             add_action('admin_notices', [$this, 'bau_hinweis']);
             if ($this->wert('neuBauenBeiProfil') === '1') {
                 add_action('calluna_index_profil_geaendert', [$this, 'profil_geaendert'], 10, 2);
+            }
+        }
+
+        // Vorschau: unabhängig davon, ob Umleitung/Build hier oder in einem Projekt-mu-plugin laufen.
+        if ($this->vorschau_art() !== 'aus') {
+            add_filter('preview_post_link', [$this, 'vorschau_cms_link'], 100, 2);
+            add_action('template_redirect', [$this, 'vorschau_abfangen'], 1);
+            if ($this->vorschau_art() === 'build') {
+                add_action('wp_ajax_calluna_vorschau_stand', [$this, 'vorschau_stand']);
+                add_action('rest_api_init', [$this, 'vorschau_route']);
             }
         }
     }
@@ -775,6 +812,333 @@ class Calluna_Index_Modul_Headless extends Calluna_Index_Modul {
         printf('<div class="notice notice-%s is-dismissible"><p>%s</p></div>', esc_attr($typ), esc_html($this->stand_text()));
     }
 
+    /* ------------------------------------------------------------ Vorschau im Frontend-Design */
+
+    const VORSCHAU_GUELTIG = 1800;            // Sekunden: Code, Auftrag und Abruf-Route
+    const VORSCHAU_TRANSIENT = 'calluna_vorschau_';
+
+    /** 'aus' | 'build' | 'ssr' — nur wenn alles Nötige eingestellt ist, sonst 'aus' (Hinweis auf der Einstellungsseite). */
+    public function vorschau_art(): string {
+        $art = $this->wert('vorschau');
+        if (!in_array($art, ['build', 'ssr'], true) || $this->frontend_url() === '') {
+            return 'aus';
+        }
+        if ($art === 'build' && $this->vorschau_ziel() === null) {
+            return 'aus';
+        }
+        if ($art === 'ssr' && $this->wert('vorschauGeheimnis') === '') {
+            return 'aus';
+        }
+        return $art;
+    }
+
+    /** Wohin ein Vorschau-Build-Auftrag geht: ['art' => 'datei'|'webhook', 'ziel' => Verzeichnis|URL] oder null. */
+    public function vorschau_ziel(): ?array {
+        $eigen = trim($this->wert('vorschauHook'));
+        if ($eigen !== '') {
+            if ($eigen[0] === '/') {
+                return (strpos($eigen, '..') === false && preg_match('#^/[A-Za-z0-9._/-]+$#', $eigen)) ? ['art' => 'datei', 'ziel' => untrailingslashit($eigen) . '/vorschau'] : null;
+            }
+            $url = calluna_index_url_pruefen($eigen);
+            return $url !== '' ? ['art' => 'webhook', 'ziel' => $url] : null;
+        }
+        // Ohne eigenen Hook nur über die Auftragsdatei: Ein Webhook/GitHub-Dispatch für Builds würde sonst ausspielen.
+        if ($this->hook_art() === 'datei' && $this->bau_ziel() !== '') {
+            return ['art' => 'datei', 'ziel' => $this->bau_ziel() . '/vorschau'];
+        }
+        return null;
+    }
+
+    private function vorschau_adresse(array $ersetzen): string {
+        $vorlage = trim($this->wert('vorschauAdresse'));
+        if ($vorlage === '') {
+            $vorlage = $this->vorschau_art() === 'ssr'
+                ? '{frontend}/preview/?id={id}&exp={exp}&token={token}'
+                : '{frontend}/_vorschau/{code}/';
+        }
+        $ersetzen['{frontend}'] = $this->frontend_url();
+        $url = strtr($vorlage, array_map('strval', $ersetzen));
+        return calluna_index_url_pruefen($url) !== '' ? $url : '';
+    }
+
+    /**
+     * „Vorschau"-Links zeigen ins CMS (?p=/page_id= + preview), auch wenn ein Projekt-mu-plugin
+     * Permalinks aufs Frontend biegt — dort fängt vorschau_abfangen() sie ab.
+     */
+    public function vorschau_cms_link($link, $post) {
+        if (!is_string($link) || !($post instanceof WP_Post)) {
+            return $link;
+        }
+        $abfrage = ['preview' => 'true'];
+        $q = wp_parse_url($link, PHP_URL_QUERY);
+        if (is_string($q) && $q !== '') {
+            wp_parse_str($q, $alt);
+            foreach (['preview_id', 'preview_nonce', '_thumbnail_id'] as $k) {
+                if (isset($alt[$k]) && is_scalar($alt[$k])) {
+                    $abfrage[$k] = (string) $alt[$k];
+                }
+            }
+        }
+        if ($post->post_type === 'page') {
+            $abfrage['page_id'] = $post->ID;
+        } else {
+            $abfrage['p'] = $post->ID;
+            if ($post->post_type !== 'post') {
+                $abfrage['post_type'] = $post->post_type;
+            }
+        }
+        return add_query_arg($abfrage, home_url('/'));
+    }
+
+    /** Vorschau-Aufruf im CMS → SSR-Link bzw. Vorschau-Build mit Warteseite. Ohne Rechte oder mit ?calluna_wp_vorschau: WordPress wie bisher. */
+    public function vorschau_abfangen(): void {
+        if ((!is_preview() && empty($_GET['preview'])) || isset($_GET['calluna_wp_vorschau'])) {
+            return;
+        }
+        $id = 0;
+        foreach (['preview_id', 'p', 'page_id'] as $k) {
+            if (!$id && isset($_GET[$k])) {
+                $id = absint($_GET[$k]);
+            }
+        }
+        if (!$id) {
+            $id = (int) get_queried_object_id();
+        }
+        $post = $id ? get_post($id) : null;
+        if (!($post instanceof WP_Post) || !current_user_can('edit_post', $post->ID)
+            || !in_array($post->post_type, $this->inhaltstypen(), true)) {
+            return;
+        }
+        nocache_headers();
+        header('X-Robots-Tag: noindex, nofollow', true);
+
+        if ($this->vorschau_art() === 'ssr') {
+            $exp = time() + 900;
+            $url = $this->vorschau_adresse([
+                '{id}'    => $post->ID,
+                '{exp}'   => $exp,
+                '{token}' => hash_hmac('sha256', $post->ID . '.' . $exp, $this->wert('vorschauGeheimnis')),
+            ]);
+            if ($url !== '') {
+                wp_redirect($url, 302, 'Calluna Companion');
+                exit;
+            }
+            return;
+        }
+
+        $auftrag = $this->vorschau_auftrag($post);
+        $this->vorschau_warteseite($post, $auftrag);
+        exit;
+    }
+
+    /**
+     * Der Entwurf so, wie ihn das Frontend sonst aus /wp/v2 bekommt (context=view), plus
+     * ungespeicherte Änderungen aus der Autospeicherung. Projekte ergänzen eigene REST-Felder
+     * für die Autospeicherung über den Filter calluna_index_vorschau_dokument.
+     */
+    public function vorschau_dokument(WP_Post $post): array {
+        $typ = get_post_type_object($post->post_type);
+        $basis = $typ && !empty($typ->rest_base) ? $typ->rest_base : $post->post_type;
+        $ns = $typ && !empty($typ->rest_namespace) ? $typ->rest_namespace : 'wp/v2';
+        $anfrage = new WP_REST_Request('GET', '/' . $ns . '/' . $basis . '/' . $post->ID);
+        $anfrage->set_query_params(['context' => 'view']);
+        $antwort = rest_do_request($anfrage);
+        $doc = $antwort->is_error() ? [] : (array) rest_get_server()->response_to_data($antwort, false);
+
+        $auto = wp_get_post_autosave($post->ID, get_current_user_id());
+        if ($auto && strtotime($auto->post_modified_gmt) >= strtotime($post->post_modified_gmt)) {
+            $doc['title']['rendered'] = apply_filters('the_title', $auto->post_title, $post->ID);
+            $doc['content']['rendered'] = apply_filters('the_content', $auto->post_content);
+            $doc['excerpt']['rendered'] = apply_filters('the_excerpt', $auto->post_excerpt);
+        } else {
+            $auto = null;
+        }
+        $doc = apply_filters('calluna_index_vorschau_dokument', $doc, $post, $auto);
+        return is_array($doc) ? $doc : [];
+    }
+
+    /** Öffentlicher Pfad des Dokuments (Pfad-Feld, sonst Permalink veröffentlichter Dokumente), null für neue Entwürfe. */
+    private function vorschau_pfad(WP_Post $post): ?string {
+        $feld = $this->wert('pfadFeld');
+        if ($feld !== '') {
+            $eigen = get_post_meta($post->ID, $feld, true);
+            if ($this->pfad_gueltig($eigen)) {
+                return $eigen;
+            }
+        }
+        if ($post->post_status === 'publish') {
+            $pfad = (string) wp_parse_url(get_permalink($post), PHP_URL_PATH);
+            return $this->pfad_gueltig($pfad) ? $pfad : null;
+        }
+        return null;
+    }
+
+    /** Legt den Auftrag an und schickt ihn ab. @return array{code:string, url:string, ok:bool, meldung:string} */
+    public function vorschau_auftrag(WP_Post $post): array {
+        $code = bin2hex(random_bytes(16));
+        $url = $this->vorschau_adresse(['{code}' => $code]);
+        $ziel = $this->vorschau_ziel();
+        $daten = [
+            'vertrag'    => 1,
+            'art'        => 'vorschau',
+            'code'       => $code,
+            'id'         => $post->ID,
+            'typ'        => $post->post_type,
+            'status'     => $post->post_status,
+            'pfad'       => $this->vorschau_pfad($post),
+            'url'        => $url,
+            'cms'        => home_url('/'),
+            'siteId'     => calluna_index_site_id() !== '' ? calluna_index_site_id() : null,
+            'erstellt'   => gmdate('c'),
+            'gueltigBis' => gmdate('c', time() + self::VORSCHAU_GUELTIG),
+        ];
+        $ergebnis = ['code' => $code, 'url' => $url, 'ok' => false, 'meldung' => ''];
+        if ($url === '' || $ziel === null) {
+            $ergebnis['meldung'] = 'Vorschau-Adresse oder -Ziel ungültig (Einstellungen → Calluna Index → headless).';
+            return $ergebnis;
+        }
+        $dokument = $this->vorschau_dokument($post);
+        set_transient(self::VORSCHAU_TRANSIENT . $code, [
+            'nutzer' => get_current_user_id(), 'ziel' => $ziel, 'daten' => $daten, 'dokument' => $dokument,
+        ], self::VORSCHAU_GUELTIG);
+
+        if ($ziel['art'] === 'datei') {
+            $dir = $ziel['ziel'];
+            if (!is_dir($dir) && !wp_mkdir_p($dir)) {
+                $ergebnis['meldung'] = 'Vorschau-Verzeichnis fehlt und lässt sich nicht anlegen.';
+                return $ergebnis;
+            }
+            $this->vorschau_aufraeumen($dir);
+            $tmp = $dir . '/.' . $code . '.tmp';
+            $json = wp_json_encode($daten + ['dokument' => $dokument]);
+            if ($json === false || file_put_contents($tmp, $json) === false || !rename($tmp, $dir . '/' . $code . '.json')) {
+                @unlink($tmp);
+                $ergebnis['meldung'] = 'Vorschau-Auftrag konnte nicht geschrieben werden.';
+                return $ergebnis;
+            }
+            $ergebnis['ok'] = true;
+            return $ergebnis;
+        }
+
+        $kopf = [
+            'Content-Type' => 'application/json',
+            'User-Agent'   => 'CallunaCompanion/' . (defined('CALLUNA_COMPANION_VERSION') ? CALLUNA_COMPANION_VERSION : '0') . '; ' . home_url('/'),
+        ];
+        if ($this->wert('hookToken') !== '') {
+            $kopf['Authorization'] = 'Bearer ' . $this->wert('hookToken');
+        }
+        // Webhook: ohne Inhalt; das Frontend holt den Entwurf mit dem Code (GET /calluna/v1/vorschau/<code>).
+        $antwort = wp_remote_post($ziel['ziel'], [
+            'timeout' => 8, 'redirection' => 0, 'headers' => $kopf, 'data_format' => 'body',
+            'body'    => wp_json_encode($daten + ['abruf' => rest_url('calluna/v1/vorschau/' . $code)]),
+        ]);
+        if (is_wp_error($antwort)) {
+            $ergebnis['meldung'] = 'Vorschau-Hook nicht erreichbar: ' . $antwort->get_error_message();
+        } else {
+            $status = (int) wp_remote_retrieve_response_code($antwort);
+            $ergebnis['ok'] = $status >= 200 && $status < 300;
+            $ergebnis['meldung'] = $ergebnis['ok'] ? '' : 'Vorschau-Hook antwortet mit HTTP ' . $status;
+        }
+        return $ergebnis;
+    }
+
+    /** Erledigte und abgelaufene Vorschau-Aufträge (älter als ein Tag) entfernen. */
+    private function vorschau_aufraeumen(string $dir): void {
+        foreach ((array) glob($dir . '/*.{json,fertig,fehler}', GLOB_BRACE) as $datei) {
+            if (is_string($datei) && @filemtime($datei) < time() - DAY_IN_SECONDS) {
+                @unlink($datei);
+            }
+        }
+    }
+
+    /** GET /calluna/v1/vorschau/<code>: Auftrag samt Entwurf für Frontends mit Vorschau-Hook. Der Code ist der Zugang (32 Hex, 30 Minuten). */
+    public function vorschau_route(): void {
+        register_rest_route('calluna/v1', '/vorschau/(?P<code>[a-f0-9]{32})', [
+            'methods'             => 'GET',
+            'permission_callback' => function (WP_REST_Request $r) {
+                return is_array(get_transient(self::VORSCHAU_TRANSIENT . (string) $r['code']));
+            },
+            'callback'            => function (WP_REST_Request $r) {
+                $a = get_transient(self::VORSCHAU_TRANSIENT . (string) $r['code']);
+                $antwort = new WP_REST_Response($a['daten'] + ['dokument' => $a['dokument']]);
+                $antwort->header('Cache-Control', 'private, no-store');
+                $antwort->header('X-Robots-Tag', 'noindex, nofollow');
+                return $antwort;
+            },
+        ]);
+    }
+
+    /** admin-ajax: Ist die Vorschau fertig? {stand: wartet|fertig|fehler, url, meldung} */
+    public function vorschau_stand(): void {
+        $code = isset($_GET['code']) ? (string) $_GET['code'] : '';
+        if (!preg_match('/^[a-f0-9]{32}$/', $code) || !check_ajax_referer('calluna_vorschau_' . $code, 'nonce', false)) {
+            wp_send_json(['stand' => 'fehler', 'meldung' => 'Ungültige Anfrage.'], 400);
+        }
+        $a = get_transient(self::VORSCHAU_TRANSIENT . $code);
+        if (!is_array($a) || (int) $a['nutzer'] !== get_current_user_id()) {
+            wp_send_json(['stand' => 'fehler', 'meldung' => 'Vorschau abgelaufen — bitte erneut „Vorschau" klicken.']);
+        }
+        $url = (string) $a['daten']['url'];
+        if ($a['ziel']['art'] === 'datei') {
+            $dir = $a['ziel']['ziel'];
+            if (is_readable($dir . '/' . $code . '.fehler')) {
+                $text = (string) file_get_contents($dir . '/' . $code . '.fehler', false, null, 0, 2000);
+                wp_send_json(['stand' => 'fehler', 'meldung' => trim(wp_strip_all_tags($text)) ?: 'Der Vorschau-Build ist fehlgeschlagen.']);
+            }
+            wp_send_json(['stand' => file_exists($dir . '/' . $code . '.fertig') ? 'fertig' : 'wartet', 'url' => $url]);
+        }
+        $kopf = wp_remote_head($url, ['timeout' => 4, 'redirection' => 0]);
+        $status = is_wp_error($kopf) ? 0 : (int) wp_remote_retrieve_response_code($kopf);
+        wp_send_json(['stand' => $status === 200 ? 'fertig' : 'wartet', 'url' => $url]);
+    }
+
+    private function vorschau_warteseite(WP_Post $post, array $auftrag): void {
+        status_header(200);
+        header('Content-Type: text/html; charset=utf-8');
+        $titel = get_the_title($post) ?: '(ohne Titel)';
+        $wp = add_query_arg('calluna_wp_vorschau', '1');
+        $stand = add_query_arg([
+            'action' => 'calluna_vorschau_stand',
+            'code'   => $auftrag['code'],
+            'nonce'  => wp_create_nonce('calluna_vorschau_' . $auftrag['code']),
+        ], admin_url('admin-ajax.php'));
+        ?><!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="robots" content="noindex, nofollow">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vorschau wird erstellt …</title>
+<style>
+body{font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f0f1;color:#1d2327;margin:0;display:grid;place-items:center;min-height:100vh}
+main{background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.1);padding:32px 36px;max-width:520px;margin:16px}
+h1{font-size:20px;margin:0 0 8px}.leise{color:#646970;font-size:14px}
+.balken{height:4px;background:#dcdcde;border-radius:2px;overflow:hidden;margin:20px 0}
+.balken i{display:block;height:100%;width:30%;background:#2271b1;animation:l 1.4s ease-in-out infinite}
+@keyframes l{0%{margin-left:-30%}100%{margin-left:100%}}.fehler{color:#b32d2e}
+</style></head><body><main>
+<h1 id="t"><?php echo $auftrag['ok'] ? 'Vorschau wird erstellt …' : 'Vorschau nicht möglich'; ?></h1>
+<p class="leise"><?php echo esc_html($titel); ?> · im Design der Website</p>
+<?php if ($auftrag['ok']) : ?>
+<div class="balken" id="b"><i></i></div>
+<p class="leise" id="s">Dauert meist 20–60 Sekunden. Die Seite öffnet sich danach von selbst.</p>
+<?php else : ?>
+<p class="fehler"><?php echo esc_html($auftrag['meldung']); ?></p>
+<?php endif; ?>
+<p class="leise"><a href="<?php echo esc_url($wp); ?>">WordPress-Vorschau anzeigen</a></p>
+</main>
+<?php if ($auftrag['ok']) : ?>
+<script>
+(function(){var start=Date.now(),url=<?php echo wp_json_encode($stand); ?>;
+function fehler(m){document.getElementById('t').textContent='Vorschau nicht möglich';var s=document.getElementById('s');s.textContent=m;s.className='fehler';document.getElementById('b').remove();}
+function frage(){fetch(url,{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
+if(d.stand==='fertig'&&d.url){location.replace(d.url);return;}
+if(d.stand==='fehler'){fehler(d.meldung||'Der Vorschau-Build ist fehlgeschlagen.');return;}
+if(Date.now()-start>180000){fehler('Die Vorschau braucht ungewöhnlich lange. Bitte später erneut versuchen.');return;}
+setTimeout(frage,2000);}).catch(function(){setTimeout(frage,4000);});}
+setTimeout(frage,1500);})();
+</script>
+<?php endif; ?>
+</body></html><?php
+    }
+
     /* ------------------------------------------------------------ Einstellungsseite */
 
     public function hinweise(): array {
@@ -791,6 +1155,17 @@ class Calluna_Index_Modul_Headless extends Calluna_Index_Modul {
             $h[] = ['typ' => 'info', 'text' => 'Kein (gültiger) Build-Hook — Änderungen lösen keinen Build aus.'];
         } elseif ($this->hook_art() === 'github' && $this->wert('hookToken') === '') {
             $h[] = ['typ' => 'warning', 'text' => 'Hook-Art GitHub ohne Hook-Token — GitHub lehnt den Dispatch ab.'];
+        }
+        $gewaehlt = $this->wert('vorschau');
+        if (in_array($gewaehlt, ['build', 'ssr'], true) && $this->vorschau_art() === 'aus') {
+            if ($this->frontend_url() === '') {
+                $grund = 'keine gültige Frontend-Adresse';
+            } elseif ($gewaehlt === 'build') {
+                $grund = 'kein Vorschau-Hook (bei Webhook/GitHub ist ein eigener Vorschau-Hook nötig, sonst würde jede Vorschau ausspielen)';
+            } else {
+                $grund = 'kein Vorschau-Geheimnis';
+            }
+            $h[] = ['typ' => 'warning', 'text' => 'Vorschau im Frontend-Design ist gewählt, aber aus: ' . $grund . '. Der Knopf „Vorschau" zeigt die WordPress-Vorschau.'];
         }
         return $h;
     }
@@ -818,6 +1193,10 @@ class Calluna_Index_Modul_Headless extends Calluna_Index_Modul {
         if ($this->ist_aktiv()) {
             $zeilen[] = 'Letzter Build: ' . esc_html($this->stand_text());
         }
+        $art = $this->vorschau_art();
+        $ziel = $art === 'build' ? $this->vorschau_ziel() : null;
+        $zeilen[] = 'Vorschau: ' . esc_html($art === 'aus' ? 'WordPress (aus)' : ($art === 'ssr' ? 'SSR-Link' : 'Vorschau-Build'))
+            . ($ziel ? ' → <code>' . esc_html($ziel['art'] === 'datei' ? $ziel['ziel'] : $this->ziel_maskiert($ziel['ziel'])) . '</code>' : '');
         if (function_exists('get_mu_plugins')) {
             $namen = [];
             foreach (get_mu_plugins() as $datei => $daten) {

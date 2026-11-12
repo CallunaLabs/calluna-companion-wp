@@ -94,6 +94,7 @@ sodass es ohne Plugin-Pfad gelesen und geschrieben werden kann.
 * Seitenprofil (Vertrag v1) wird stündlich per WP-Cron und beim Speichern geholt (Bearer + ETag), als Option `calluna_index_profil` gespeichert (kein autoload). Fehler nur auf der Einstellungsseite; das letzte gültige Profil bleibt.
 * Modul-System: je Modul „Vorgabe aus Index" / „an" / „aus"; ohne Einrichtung sind alle Module aus.
 * Modul `consent`: Consent-Konfiguration aus dem Profil für den Build, keine Ausgabe im CMS.
+* Modul `headless`, Vorschau im Frontend-Design (Standard aus): Knopf „Vorschau" zeigt Entwürfe im Design des Frontends — als Vorschau-Build (Auftragsdatei oder eigener Vorschau-Hook, Warteseite im CMS) oder als signierter Link auf eine SSR-Vorschau-Route. Filter `calluna_index_vorschau_dokument`, Route `GET /calluna/v1/vorschau/<code>`.
 * Modul `headless`: Frontend-Umleitung (302), „Ansehen"-Links aufs Frontend, Build-Auslöser (Webhook, GitHub-Dispatch oder Auftragsdatei; entprellt mit Nachlauf), Knopf „↻ Seite neu bauen", Build-Status. Erkennt die Projekt-mu-plugins (paqato, calluna.ai) und lässt den jeweiligen Teil dann aus.
 * Module `seo`, `weiterleitungen`, `indexnow` vorbereitet (nur Einstellungen, ohne Funktion). Konzept SEO: `docs/seo-modul.md`.
 * Neuer Endpoint `GET /calluna/v1/index/build-konfig` (manage_options oder X-Calluna-Token). Kein neuer REST-Namespace; `/info`, `/posts`, `/posts/{id}`, `calluna_seo` und alle Maintenance-Endpoints unverändert.
