@@ -24,6 +24,9 @@
  *   POST /wp-json/calluna/v1/maintenance/cache/raidboxes   Dedizierter Raidboxes Varnish/Nginx Purge (best-effort, multi-mechanism)
  *   POST /wp-json/calluna/v1/maintenance/plugins/{slug}/update   Triggert wp_update_plugin via Plugin_Upgrader
  *
+ * Felder am Core-Endpunkt (Content Pipe):
+ *   POST /wp-json/wp/v2/users/{id}  { "calluna_avatar": <Medien-ID> }   Profilbild aus der Mediathek (module/autorenbild.php)
+ *
  * Sicherheit: Alle Endpoints erfordern WordPress Application-Password Auth (Basic Auth).
  * Posts: `edit_posts`. Maintenance: `manage_options` bzw. `update_plugins`.
  *
@@ -44,6 +47,9 @@ define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
  * ========================================================================== */
 
 require_once __DIR__ . '/lib/plugin-update-checker/plugin-update-checker.php';
+
+/* Module */
+require_once __DIR__ . '/module/autorenbild.php';
 
 $calluna_companion_update_checker = \YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
     'https://github.com/callunaLabs/calluna-companion-wp/',
