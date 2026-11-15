@@ -83,6 +83,9 @@ sodass es ohne Plugin-Pfad gelesen und geschrieben werden kann.
 
 == Changelog ==
 
+= Unveröffentlicht =
+* Neu: `POST /calluna/v1/elementor/{id}/aus` — Elementor für einen Beitrag ausschalten (wie „Zurück zum WordPress-Editor“). Löscht nur `_elementor_edit_mode`; das Layout (`_elementor_data`) bleibt gespeichert. Recht `edit_post`. Für den Knopf „Elementor ausschalten und mit der Pipe weiterarbeiten“ in der Content Pipe.
+
 = 0.9.0 =
 * Neu: Strukturierte Daten (JSON-LD) aus der Content Pipe im <head>. `POST /calluna/v1/posts/{id}` nimmt `schema: { article, faq_page }` an und speichert es als Post-Meta `_calluna_schema`.
 * Ohne SEO-Plugin gibt das Plugin Artikel (NewsArticle bzw. Typ aus der Pipe) und FAQPage als eigenes JSON-LD aus. Mit Yoast, Rank Math oder AIOSEO hängt es nur die FAQPage in deren Graph ein — das Artikel-Schema kommt dort weiter vom SEO-Plugin, nichts doppelt.

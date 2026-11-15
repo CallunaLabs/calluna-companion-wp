@@ -35,6 +35,7 @@ Namespace `calluna/v1`. Auth: WordPress Application Passwords (HTTP Basic).
 | `/info` | GET | Erkannte SEO-Plugins, Capabilities, Versionen |
 | `/posts` | GET | Posts inkl. SEO-Meta + Featured Image (flat) |
 | `/posts/{id}` | GET/POST | Read + Update Post inkl. SEO + Featured Image URL |
+| `/elementor/{id}/aus` | POST | Elementor für diesen Beitrag ausschalten (löscht nur `_elementor_edit_mode`, Layout bleibt; Cap `edit_post`) |
 
 Außerdem wird `calluna_seo` als Field an `/wp/v2/posts` registriert (rückwärtskompatibel).
 
