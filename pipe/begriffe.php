@@ -89,7 +89,11 @@ function calluna_companion_write_term_seo(int $term_id, array $seo, string $taxo
         if ($robots !== null) $werte['wpseo_noindex'] = in_array('noindex', $robots, true) ? 'noindex' : 'default';
         if (!$werte) return;
         if (class_exists('WPSEO_Taxonomy_Meta') && method_exists('WPSEO_Taxonomy_Meta', 'set_values')) {
-            WPSEO_Taxonomy_Meta::set_values($term_id, $taxonomy, $werte);
+            // set_values() übernimmt nicht gesendete Schlüssel nur teilweise aus dem alten
+            // Stand (wpseo_canonical u. a. fielen auf den Standard zurück). Darum den
+            // ganzen bisherigen Stand mitgeben und nur die eigenen Felder überschreiben.
+            $bisher = calluna_pipe_yoast_term_meta($term_id, $taxonomy);
+            WPSEO_Taxonomy_Meta::set_values($term_id, $taxonomy, array_merge($bisher, $werte));
             return;
         }
         $opt = get_option('wpseo_taxonomy_meta');
