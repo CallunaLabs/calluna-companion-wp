@@ -3,7 +3,7 @@ Contributors: callunalabs
 Tags: rest-api, seo, content-pipe, headless, maintenance, monitoring, dashboard
 Requires at least: 6.0
 Tested up to: 6.5
-Stable tag: 0.9.0
+Stable tag: 0.10.0
 License: GPLv2 or later
 Plugin URI: https://github.com/callunaLabs/calluna-companion-wp
 
@@ -82,6 +82,13 @@ Außerdem wird das Feld `calluna_seo` an `/wp-json/wp/v2/posts` registriert,
 sodass es ohne Plugin-Pfad gelesen und geschrieben werden kann.
 
 == Changelog ==
+
+= 0.10.0 =
+* Neu: `GET /calluna/v1/terms/{taxonomy}/{id}/seo` liest SEO-Titel und -Beschreibung einer Kategorie- bzw. Schlagwortseite; `POST` schreibt sie und antwortet mit dem danach gespeicherten Stand.
+* Fix: Bei Yoast SEO landete Begriffs-SEO bisher in Term-Meta, die Yoast nie liest. Jetzt über `WPSEO_Taxonomy_Meta` (Option `wpseo_taxonomy_meta`). Ohne unterstütztes SEO-Plugin antwortet `POST` mit 409 statt `ok: true`.
+* Neu: `GET /calluna/v1/terms/{taxonomy}/uebersicht` — je Begriff SEO-Titel, -Beschreibung, Zahl der Beiträge und Datum des ersten und letzten veröffentlichten Beitrags (seitenweise je 500).
+* Neu: `POST /calluna/v1/redirects` legt eine 301 von alter auf neue Adresse an — in Rank Math (Modul Weiterleitungen), Redirection oder Yoast SEO Premium. Kein eigener Weiterleitungs-Speicher. Vorhandene Regel für dieselbe Quelle wird umgestellt, Regeln mit der neuen Adresse als Quelle werden abgeschaltet (keine Schleifen). Recht `manage_options`.
+* `/info` meldet zusätzlich `features: term_seo, term_overview, redirects`, `redirects` (welches Plugin speichert), `permalink_structure` und `default_category`. Erweiterbar über die Filter `calluna_companion_features` und `calluna_companion_info`.
 
 = 0.9.0 =
 * Neu: Strukturierte Daten (JSON-LD) aus der Content Pipe im <head>. `POST /calluna/v1/posts/{id}` nimmt `schema: { article, faq_page }` an und speichert es als Post-Meta `_calluna_schema`.

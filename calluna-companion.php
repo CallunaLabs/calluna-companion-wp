@@ -3,7 +3,7 @@
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
  * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.9.0
+ * Version:           0.10.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -16,6 +16,10 @@
  *   GET  /wp-json/calluna/v1/info                          Übersicht erkannter Plugins + verfügbarer SEO-Felder
  *   GET  /wp-json/calluna/v1/posts                         Posts inkl. SEO-Meta, Categories, Tags, Featured Image (flat)
  *   POST /wp-json/calluna/v1/posts/{id}                    Update Posts inkl. SEO-Felder (Yoast/RankMath/AIOSEO automatisch)
+ *   GET  /wp-json/calluna/v1/terms/{taxonomy}/{id}/seo     SEO-Titel/-Beschreibung einer Kategorie-/Schlagwortseite (pipe/begriffe.php)
+ *   POST /wp-json/calluna/v1/terms/{taxonomy}/{id}/seo     … schreiben (Yoast über wpseo_taxonomy_meta, Rank Math über Term-Meta)
+ *   GET  /wp-json/calluna/v1/terms/{taxonomy}/uebersicht   Liste: SEO je Begriff + Datum erster/letzter Beitrag
+ *   POST /wp-json/calluna/v1/redirects                     301 anlegen in Rank Math / Redirection / Yoast Premium (pipe/weiterleitungen.php)
  *
  * Endpoints (Dashboard Maintenance):
  *   GET  /wp-json/calluna/v1/maintenance/health            WP-/PHP-Version, debug.log-Tail, Cache-Provider-Detection, Update-Counts
@@ -36,7 +40,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.9.0');
+define('CALLUNA_COMPANION_VERSION', '0.10.0');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* ============================================================================
@@ -44,6 +48,9 @@ define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
  * ========================================================================== */
 
 require_once __DIR__ . '/lib/plugin-update-checker/plugin-update-checker.php';
+// Schreibwege für die Content Pipe (0.10.0): Begriffs-SEO und Weiterleitungen.
+require_once __DIR__ . '/pipe/begriffe.php';
+require_once __DIR__ . '/pipe/weiterleitungen.php';
 
 $calluna_companion_update_checker = \YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
     'https://github.com/callunaLabs/calluna-companion-wp/',
@@ -370,34 +377,6 @@ function calluna_companion_read_seo(int $post_id): array {
     ];
 }
 
-/**
- * Term-level SEO writer (Categories/Tags). Rank Math + Yoast both support
- * per-term robots — they use term_meta with the same key as posts.
- */
-function calluna_companion_write_term_seo(int $term_id, array $seo): void {
-    $plugin = calluna_companion_detect_seo_plugin();
-    if (isset($seo['robots']) && is_array($seo['robots'])) {
-        $robots = array_values(array_unique(array_map('sanitize_key', $seo['robots'])));
-        if ($plugin === 'rank-math') {
-            update_term_meta($term_id, 'rank_math_robots', $robots);
-        } elseif ($plugin === 'yoast') {
-            // Yoast term-meta: yoast_wpseo_noindex stores 0/1/2 strings
-            update_term_meta($term_id, 'wpseo_noindex', in_array('noindex', $robots, true) ? 'noindex' : 'default');
-        } elseif ($plugin === 'aioseo') {
-            update_term_meta($term_id, '_aioseo_robots_noindex', in_array('noindex', $robots, true) ? '1' : '0');
-            update_term_meta($term_id, '_aioseo_robots_nofollow', in_array('nofollow', $robots, true) ? '1' : '0');
-        }
-    }
-    if (isset($seo['title'])) {
-        if ($plugin === 'rank-math') update_term_meta($term_id, 'rank_math_title', sanitize_text_field($seo['title']));
-        elseif ($plugin === 'yoast') update_term_meta($term_id, 'wpseo_title', sanitize_text_field($seo['title']));
-    }
-    if (isset($seo['description'])) {
-        if ($plugin === 'rank-math') update_term_meta($term_id, 'rank_math_description', sanitize_textarea_field($seo['description']));
-        elseif ($plugin === 'yoast') update_term_meta($term_id, 'wpseo_desc', sanitize_textarea_field($seo['description']));
-    }
-}
-
 function calluna_companion_write_seo(int $post_id, array $seo): void {
     $plugin = calluna_companion_detect_seo_plugin();
     $keys   = calluna_companion_seo_meta_keys($plugin);
@@ -482,7 +461,7 @@ function calluna_companion_rest_info(): WP_REST_Response {
     }
     $i18n['languages'] = $i18n_languages;
 
-    return new WP_REST_Response([
+    $info = [
         'companion_version' => CALLUNA_COMPANION_VERSION,
         'wp_version'        => get_bloginfo('version'),
         'site_url'          => get_site_url(),
@@ -490,7 +469,8 @@ function calluna_companion_rest_info(): WP_REST_Response {
         'seo_plugin'        => $plugin,
         'seo_meta_keys'     => calluna_companion_seo_meta_keys($plugin),
         // 0.9.0: JSON-LD aus der Content Pipe im <head> (siehe calluna_companion_schema_*).
-        'features'          => ['schema'],
+        // Weitere Fähigkeiten melden die Teile unter pipe/ über den Filter (seit 0.10.0).
+        'features'          => array_values(array_unique(apply_filters('calluna_companion_features', ['schema']))),
         'plugins'           => $detected,
         'i18n'              => $i18n,
         'rest_namespaces'   => $namespaces,
@@ -499,7 +479,8 @@ function calluna_companion_rest_info(): WP_REST_Response {
             'can_publish'    => current_user_can('publish_posts'),
             'can_upload'     => current_user_can('upload_files'),
         ],
-    ], 200);
+    ];
+    return new WP_REST_Response(apply_filters('calluna_companion_info', $info), 200);
 }
 
 /**
@@ -721,33 +702,7 @@ add_action('rest_api_init', function () {
             'permission_callback' => fn() => current_user_can('edit_posts'),
         ],
     ]);
-
-    // Term-level SEO (Categories + Tags + custom taxonomies). Lets Calluna set
-    // robots noindex/nofollow + title/description on category archive pages.
-    register_rest_route(CALLUNA_COMPANION_NAMESPACE, '/terms/(?P<taxonomy>[a-z0-9_-]+)/(?P<id>\d+)/seo', [
-        'methods'             => 'POST',
-        'callback'            => function (WP_REST_Request $req) {
-            $taxonomy = sanitize_key($req['taxonomy']);
-            $term_id  = (int) $req['id'];
-            $term     = get_term($term_id, $taxonomy);
-            if (!$term || is_wp_error($term)) {
-                return new WP_Error('not_found', 'Term nicht gefunden', ['status' => 404]);
-            }
-            $body = $req->get_json_params();
-            if (!is_array($body) || !isset($body['seo']) || !is_array($body['seo'])) {
-                return new WP_Error('bad_request', 'Body needs { seo: { ... } }', ['status' => 400]);
-            }
-            calluna_companion_write_term_seo($term_id, $body['seo']);
-            return new WP_REST_Response([
-                'ok' => true,
-                'taxonomy' => $taxonomy,
-                'term_id' => $term_id,
-                'name' => $term->name,
-                'slug' => $term->slug,
-            ], 200);
-        },
-        'permission_callback' => fn() => current_user_can('manage_categories'),
-    ]);
+    // Begriffs-SEO (GET + POST) liegt seit 0.10.0 in pipe/begriffe.php.
 });
 
 /**
