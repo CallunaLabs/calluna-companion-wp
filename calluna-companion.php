@@ -1988,9 +1988,9 @@ add_action('rest_api_init', function () {
     register_rest_route(CALLUNA_COMPANION_NAMESPACE, '/elementor/(?P<id>\d+)/aus', [
         'methods'             => 'POST',
         'callback'            => 'calluna_companion_rest_elementor_aus',
-        'permission_callback' => function (WP_REST_Request $req) {
-            return current_user_can('edit_post', (int) $req['id']);
-        },
+        // Grundrecht hier, das Recht für genau diesen Beitrag im Callback —
+        // sonst meldet eine unbekannte ID 403 statt 404.
+        'permission_callback' => fn() => current_user_can('edit_posts'),
     ]);
 });
 
@@ -1999,6 +1999,9 @@ function calluna_companion_rest_elementor_aus(WP_REST_Request $req) {
     $post = $id ? get_post($id) : null;
     if (!$post) {
         return new WP_Error('calluna_post_not_found', 'Beitrag nicht gefunden', ['status' => 404]);
+    }
+    if (!current_user_can('edit_post', $id)) {
+        return new WP_Error('rest_cannot_edit', 'Keine Berechtigung für diesen Beitrag', ['status' => 403]);
     }
     $vorher = (string) get_post_meta($id, '_elementor_edit_mode', true);
     if ($vorher !== '') {
