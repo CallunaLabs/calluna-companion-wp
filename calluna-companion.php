@@ -1964,3 +1964,52 @@ add_action('rest_api_init', function () {
         'permission_callback' => function () { return current_user_can('manage_options'); },
     ]);
 });
+
+/**
+ * ── Elementor je Beitrag ausschalten (Content Pipe, „Elementor ausschalten
+ * und mit der Pipe weiterarbeiten“) ─────────────────────────────────────────
+ *
+ * POST /calluna/v1/elementor/{id}/aus
+ *
+ * Macht genau das, was „Zurück zum WordPress-Editor“ in Elementor tut: Das
+ * Kennzeichen `_elementor_edit_mode` wird gelöscht. Danach zeigt WordPress den
+ * normalen Inhalt (post_content) statt des Elementor-Layouts.
+ * `_elementor_data` (das Layout) bleibt unangetastet — öffnet jemand den
+ * Beitrag wieder mit Elementor, ist es zurück. Elementor-Daten schreibt dieser
+ * Endpunkt nie.
+ *
+ * Nötig, weil das Meta geschützt ist (Unterstrich) und WordPress es über die
+ * REST-Schnittstelle nur schreibt, wenn Elementor es mit eigener
+ * Rechteprüfung freigibt — darauf ist kein Verlass. Die Pipe versucht zuerst
+ * die Schnittstelle und nimmt diesen Endpunkt als Rückfall.
+ * Recht: `edit_post` für genau diesen Beitrag.
+ */
+add_action('rest_api_init', function () {
+    register_rest_route(CALLUNA_COMPANION_NAMESPACE, '/elementor/(?P<id>\d+)/aus', [
+        'methods'             => 'POST',
+        'callback'            => 'calluna_companion_rest_elementor_aus',
+        'permission_callback' => function (WP_REST_Request $req) {
+            return current_user_can('edit_post', (int) $req['id']);
+        },
+    ]);
+});
+
+function calluna_companion_rest_elementor_aus(WP_REST_Request $req) {
+    $id   = (int) $req['id'];
+    $post = $id ? get_post($id) : null;
+    if (!$post) {
+        return new WP_Error('calluna_post_not_found', 'Beitrag nicht gefunden', ['status' => 404]);
+    }
+    $vorher = (string) get_post_meta($id, '_elementor_edit_mode', true);
+    if ($vorher !== '') {
+        delete_post_meta($id, '_elementor_edit_mode');
+        // Objekt-Cache des Beitrags leeren; Seiten-Caches leert die Website selbst.
+        clean_post_cache($id);
+    }
+    return new WP_REST_Response([
+        'ok'        => true,
+        'id'        => $id,
+        'vorher'    => $vorher,
+        'elementor' => false,
+    ], 200);
+}
