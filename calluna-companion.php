@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
- * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.9.0
+ * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), und Auto-Updates via GitHub-Releases.
+ * Version:           0.9.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.9.0');
+define('CALLUNA_COMPANION_VERSION', '0.9.1');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* ============================================================================
@@ -1882,85 +1882,24 @@ function calluna_companion_maintenance_pages(WP_REST_Request $req): WP_REST_Resp
 }
 
 /* ============================================================================
- * MONITOR HEARTBEAT — periodic self-registration to monitor.calluna.ai
+ * MONITOR-HEARTBEAT ENTFERNT (0.9.1)
+ *
+ * Bis 0.9.0 meldete sich das Plugin täglich bei monitor.calluna.ai (Website-
+ * Adresse, Name, Versionen, Admin-E-Mail). Der Monitor/Index geht in der
+ * Content Pipe auf, und die Pipe braucht keine Selbstmeldung: Sie kennt die
+ * angebundenen Websites über ihre CMS-Zugänge und fragt das Plugin selbst ab.
+ * Hier wird nur noch der alte WP-Cron-Termin von Installationen geräumt, die
+ * per Auto-Update kommen (register_activation_hook feuert bei Updates nicht).
  * ========================================================================== */
 
-define('CALLUNA_MONITOR_HEARTBEAT_URL', 'https://monitor.calluna.ai/api/companion/discover');
-define('CALLUNA_MONITOR_HEARTBEAT_CRON', 'calluna_companion_monitor_heartbeat');
+define('CALLUNA_MONITOR_HEARTBEAT_CRON_LEGACY', 'calluna_companion_monitor_heartbeat');
 
-function calluna_companion_monitor_heartbeat_payload(): array {
-    global $wp_version;
-    return [
-        'site_url'       => home_url(),
-        'site_name'      => get_bloginfo('name'),
-        'wp_version'     => $wp_version ?? null,
-        'plugin_version' => CALLUNA_COMPANION_VERSION,
-        'admin_email'    => get_bloginfo('admin_email'),
-        'multisite'      => is_multisite(),
-    ];
-}
-
-function calluna_companion_monitor_heartbeat_send(): void {
-    $body = wp_json_encode(calluna_companion_monitor_heartbeat_payload());
-    $headers = ['Content-Type' => 'application/json'];
-    // Optional shared secret (defined in wp-config.php as CALLUNA_MONITOR_REGISTER_TOKEN)
-    if (defined('CALLUNA_MONITOR_REGISTER_TOKEN') && CALLUNA_MONITOR_REGISTER_TOKEN) {
-        $headers['Authorization'] = 'Bearer ' . CALLUNA_MONITOR_REGISTER_TOKEN;
+add_action('init', function () {
+    if (wp_next_scheduled(CALLUNA_MONITOR_HEARTBEAT_CRON_LEGACY)) {
+        wp_clear_scheduled_hook(CALLUNA_MONITOR_HEARTBEAT_CRON_LEGACY);
     }
-    // Filter to override URL or skip entirely (return falsy URL = skip)
-    $url = apply_filters('calluna_monitor_heartbeat_url', CALLUNA_MONITOR_HEARTBEAT_URL);
-    if (!$url) return;
-
-    wp_remote_post($url, [
-        'timeout'     => 5,
-        'blocking'    => false,
-        'headers'     => $headers,
-        'body'        => $body,
-        'data_format' => 'body',
-        'sslverify'   => true,
-    ]);
-}
-
-// On plugin activation: schedule cron + send immediately
-register_activation_hook(__FILE__, function () {
-    if (!wp_next_scheduled(CALLUNA_MONITOR_HEARTBEAT_CRON)) {
-        wp_schedule_event(time() + 60, 'daily', CALLUNA_MONITOR_HEARTBEAT_CRON);
-    }
-    // Defer the first beat to avoid blocking activation
-    wp_schedule_single_event(time() + 30, CALLUNA_MONITOR_HEARTBEAT_CRON);
 });
 
 register_deactivation_hook(__FILE__, function () {
-    wp_clear_scheduled_hook(CALLUNA_MONITOR_HEARTBEAT_CRON);
-});
-
-add_action(CALLUNA_MONITOR_HEARTBEAT_CRON, 'calluna_companion_monitor_heartbeat_send');
-
-// Self-heal scheduling on every init: register_activation_hook does NOT fire
-// on plugin updates, so sites that auto-updated from an earlier version
-// without heartbeat-scheduling would never ping. Check + register on init
-// (cheap, runs once per request, no-op when already scheduled).
-add_action('init', function () {
-    if (!wp_next_scheduled(CALLUNA_MONITOR_HEARTBEAT_CRON)) {
-        wp_schedule_event(time() + 60, 'daily', CALLUNA_MONITOR_HEARTBEAT_CRON);
-        // Also fire one immediate single-event so the user sees a heartbeat
-        // shortly after the update lands, not 24h later.
-        wp_schedule_single_event(time() + 30, CALLUNA_MONITOR_HEARTBEAT_CRON);
-    }
-});
-
-// Admin-triggerable REST endpoint to send a heartbeat on demand (debugging).
-add_action('rest_api_init', function () {
-    register_rest_route(CALLUNA_COMPANION_NAMESPACE, '/monitor/heartbeat', [
-        'methods'  => 'POST',
-        'callback' => function () {
-            calluna_companion_monitor_heartbeat_send();
-            return new WP_REST_Response([
-                'ok' => true,
-                'scheduled_next' => wp_next_scheduled(CALLUNA_MONITOR_HEARTBEAT_CRON),
-                'payload' => calluna_companion_monitor_heartbeat_payload(),
-            ], 200);
-        },
-        'permission_callback' => function () { return current_user_can('manage_options'); },
-    ]);
+    wp_clear_scheduled_hook(CALLUNA_MONITOR_HEARTBEAT_CRON_LEGACY);
 });

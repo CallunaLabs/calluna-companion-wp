@@ -3,7 +3,7 @@ Contributors: callunalabs
 Tags: rest-api, seo, content-pipe, headless, maintenance, monitoring, dashboard
 Requires at least: 6.0
 Tested up to: 6.5
-Stable tag: 0.9.0
+Stable tag: 0.9.1
 License: GPLv2 or later
 Plugin URI: https://github.com/callunaLabs/calluna-companion-wp
 
@@ -82,6 +82,9 @@ Außerdem wird das Feld `calluna_seo` an `/wp-json/wp/v2/posts` registriert,
 sodass es ohne Plugin-Pfad gelesen und geschrieben werden kann.
 
 == Changelog ==
+
+= 0.9.1 =
+* Entfernt: Die tägliche Selbstmeldung an monitor.calluna.ai (Heartbeat mit Website-Adresse, Name, Versionen und Admin-E-Mail) entfällt. Der alte WP-Cron-Termin wird beim ersten Aufruf nach dem Update gelöscht. Der Filter `calluna_monitor_heartbeat_url`, die Konstante `CALLUNA_MONITOR_REGISTER_TOKEN` und `POST /calluna/v1/monitor/heartbeat` haben keine Wirkung mehr.
 
 = 0.9.0 =
 * Neu: Strukturierte Daten (JSON-LD) aus der Content Pipe im <head>. `POST /calluna/v1/posts/{id}` nimmt `schema: { article, faq_page }` an und speichert es als Post-Meta `_calluna_schema`.
