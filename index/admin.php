@@ -1,10 +1,10 @@
 <?php
 /**
- * Calluna Index — Einstellungsseite (Einstellungen → Calluna Index).
+ * Calluna Companion — Einstellungsseite (Einstellungen → Calluna Companion).
  *
  * Slug `calluna-companion` (wie bisher). Zwei Reiter:
- *   - „Index & Module": Site-ID, Site-Token, Index-URL, Profil-Stand, Module.
- *   - „Companion-Token": der bisherige Inhalt der Companion-Seite (X-Calluna-Token).
+ *   - „Verbindung zur Content Pipe": Companion-Token (X-Calluna-Token), Version, erkannte Plugins.
+ *   - „Module": Schalter und Einstellungen der Module (seit 0.10.0 nur headless).
  * Gespeichert wird über admin-post.php (Nonce + manage_options).
  */
 
@@ -85,9 +85,9 @@ function calluna_index_admin_hinweise(): void {
                 continue;
             }
             $typ = in_array($h['typ'] ?? '', ['error', 'warning', 'info', 'success'], true) ? $h['typ'] : 'info';
-            $link = $eigene ? '' : ' <a href="' . esc_url(calluna_index_seiten_url()) . '">Calluna Index öffnen</a>';
+            $link = $eigene ? '' : ' <a href="' . esc_url(calluna_index_seiten_url(['tab' => 'module'])) . '">Calluna Companion öffnen</a>';
             printf(
-                '<div class="notice notice-%s"><p><strong>Calluna Index · %s:</strong> %s%s</p></div>',
+                '<div class="notice notice-%s"><p><strong>Calluna Companion · %s:</strong> %s%s</p></div>',
                 esc_attr($typ),
                 esc_html($modul->titel()),
                 esc_html((string) ($h['text'] ?? '')),
@@ -103,21 +103,22 @@ function calluna_index_einstellungsseite(): void {
     if (!current_user_can('manage_options')) {
         wp_die('Keine Berechtigung.', 403);
     }
-    $tab = (isset($_GET['tab']) && $_GET['tab'] === 'token') ? 'token' : 'index';
+    $tab = (isset($_GET['tab']) && $_GET['tab'] === 'module') ? 'module' : 'verbindung';
     ?>
     <div class="wrap calluna-index">
-        <?php calluna_companion_logo_html('Index'); ?>
-        <h1 class="screen-reader-text">Calluna Index</h1>
+        <?php calluna_companion_logo_html('Companion'); ?>
+        <h1 class="screen-reader-text">Calluna Companion</h1>
         <?php calluna_index_meldungen_ausgeben(); ?>
         <nav class="nav-tab-wrapper" style="margin-bottom:16px;">
-            <a href="<?php echo esc_url(calluna_index_seiten_url()); ?>" class="nav-tab<?php echo $tab === 'index' ? ' nav-tab-active' : ''; ?>">Index &amp; Module</a>
-            <a href="<?php echo esc_url(calluna_index_seiten_url(['tab' => 'token'])); ?>" class="nav-tab<?php echo $tab === 'token' ? ' nav-tab-active' : ''; ?>">Companion-Token</a>
+            <a href="<?php echo esc_url(calluna_index_seiten_url()); ?>" class="nav-tab<?php echo $tab === 'verbindung' ? ' nav-tab-active' : ''; ?>">Verbindung zur Content Pipe</a>
+            <a href="<?php echo esc_url(calluna_index_seiten_url(['tab' => 'module'])); ?>" class="nav-tab<?php echo $tab === 'module' ? ' nav-tab-active' : ''; ?>">Module</a>
         </nav>
         <?php
-        if ($tab === 'token') {
-            calluna_companion_token_bereich();
+        if ($tab === 'module') {
+            calluna_index_seite_module();
         } else {
-            calluna_index_seite_index();
+            calluna_companion_token_bereich();
+            calluna_index_seite_info();
         }
         ?>
     </div>
@@ -137,114 +138,42 @@ function calluna_index_geheim_anzeige(string $wert): string {
     return 'gesetzt · endet auf …' . substr($wert, -4) . ' · SHA-256 ' . substr(hash('sha256', $wert), 0, 12) . '…';
 }
 
-function calluna_index_seite_index(): void {
-    $e = calluna_index_einstellungen();
-    $stand = calluna_index_stand();
-    $profil = calluna_index_profil();
-    $token = calluna_index_site_token();
+/** Nur zum Lesen: was die Content Pipe über /calluna/v1/info von dieser Seite erfährt. */
+function calluna_index_seite_info(): void {
+    $seo = function_exists('calluna_companion_detect_seo_plugin') ? calluna_companion_detect_seo_plugin() : '';
+    $namen = ['yoast' => 'Yoast SEO', 'rank-math' => 'Rank Math', 'aioseo' => 'All in One SEO', 'none' => 'keins'];
+    $sprachen = defined('ICL_SITEPRESS_VERSION') ? 'WPML' : (function_exists('pll_languages_list') ? 'Polylang' : 'keins');
     ?>
-    <p>Verbindet diese Seite mit ihrem <strong>Seitenprofil</strong> im Calluna Index (<code><?php echo esc_html(calluna_index_url()); ?></code>).
-        Das Profil gibt vor, welche Module laufen und wie sie eingestellt sind; jede lokale Einstellung hier hat Vorrang.
-        Ohne Einrichtung bleiben alle Module aus.</p>
+    <h2>Diese Seite</h2>
+    <table class="form-table" role="presentation">
+        <tr><th scope="row">Companion-Version</th><td><code><?php echo esc_html(CALLUNA_COMPANION_VERSION); ?></code></td></tr>
+        <tr><th scope="row">SEO-Plugin</th><td><?php echo esc_html($namen[$seo] ?? ($seo !== '' ? $seo : 'keins')); ?></td></tr>
+        <tr><th scope="row">Sprachen-Plugin</th><td><?php echo esc_html($sprachen); ?></td></tr>
+    </table>
+    <?php
+}
 
+function calluna_index_seite_module(): void {
+    $e = calluna_index_einstellungen();
+    ?>
     <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
         <input type="hidden" name="action" value="calluna_index_speichern" />
         <?php wp_nonce_field('calluna_index_speichern'); ?>
-        <?php /* Enter in einem Feld = Speichern (erster Submit-Knopf im Formular), nicht „Profil abrufen". */ ?>
-        <button type="submit" name="aktion" value="speichern" tabindex="-1" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;">Speichern</button>
-
-        <h2>Verbindung</h2>
-        <table class="form-table" role="presentation">
-            <tr>
-                <th scope="row"><label for="calluna-index-site-id">Site-ID</label></th>
-                <td>
-                    <?php if (defined('CALLUNA_INDEX_SITE_ID')) : ?>
-                        <code><?php echo esc_html(calluna_index_site_id()); ?></code> <span class="description">(fest in wp-config.php: <code>CALLUNA_INDEX_SITE_ID</code>)</span>
-                    <?php else : ?>
-                        <input type="text" id="calluna-index-site-id" name="site_id" value="<?php echo esc_attr((string) $e['site_id']); ?>" class="regular-text" pattern="[a-z0-9\-]{2,40}" placeholder="z. B. paqato" autocomplete="off" />
-                        <p class="description">Kennung der Seite im Index, <code>[a-z0-9-]</code>, 2–40 Zeichen.</p>
-                    <?php endif; ?>
-                </td>
-            </tr>
-            <tr>
-                <th scope="row"><label for="calluna-index-token">Site-Token</label></th>
-                <td>
-                    <?php if (defined('CALLUNA_INDEX_SITE_TOKEN')) : ?>
-                        <span><?php echo esc_html(calluna_index_geheim_anzeige($token)); ?></span> <span class="description">(fest in wp-config.php: <code>CALLUNA_INDEX_SITE_TOKEN</code>)</span>
-                    <?php else : ?>
-                        <input type="password" id="calluna-index-token" name="site_token" value="" class="regular-text" autocomplete="new-password" placeholder="<?php echo $token !== '' ? esc_attr('unverändert lassen') : esc_attr('aus der Index-Konsole einfügen'); ?>" />
-                        <p class="description"><?php echo esc_html(calluna_index_geheim_anzeige($token)); ?>. Leer lassen = unverändert.
-                            <?php if ($token !== '') : ?>
-                                <label style="margin-left:8px;"><input type="checkbox" name="token_loeschen" value="1" /> Token entfernen</label>
-                            <?php endif; ?>
-                        </p>
-                    <?php endif; ?>
-                </td>
-            </tr>
-            <tr>
-                <th scope="row"><label for="calluna-index-url">Index-URL</label></th>
-                <td>
-                    <?php if (defined('CALLUNA_INDEX_URL')) : ?>
-                        <code><?php echo esc_html(calluna_index_url()); ?></code> <span class="description">(fest in wp-config.php: <code>CALLUNA_INDEX_URL</code>)</span>
-                    <?php else : ?>
-                        <input type="url" id="calluna-index-url" name="index_url" value="<?php echo esc_attr((string) $e['index_url']); ?>" class="regular-text" placeholder="<?php echo esc_attr(CALLUNA_INDEX_URL_STANDARD); ?>" />
-                        <p class="description">Leer = <code><?php echo esc_html(CALLUNA_INDEX_URL_STANDARD); ?></code>. Nur https (http nur für localhost/*.test).</p>
-                    <?php endif; ?>
-                </td>
-            </tr>
-        </table>
-
-        <h2>Seitenprofil</h2>
-        <table class="form-table" role="presentation">
-            <tr><th scope="row">Revision</th><td><?php echo $profil !== null && isset($profil['revision']) ? '<strong>' . esc_html((string) $profil['revision']) . '</strong>' : '—'; ?>
-                <?php if ($profil !== null && !empty($profil['aktualisiert']) && is_string($profil['aktualisiert'])) : ?>
-                    <span class="description">· im Index gespeichert <?php echo esc_html($profil['aktualisiert']); ?></span>
-                <?php endif; ?></td></tr>
-            <tr><th scope="row">Zuletzt abgerufen</th><td><?php echo esc_html(calluna_index_zeit($stand['abgerufen'])); ?>
-                <span class="description">· zuletzt geändert <?php echo esc_html(calluna_index_zeit($stand['geaendert'])); ?>
-                · zuletzt versucht <?php echo esc_html(calluna_index_zeit($stand['geprueft'])); ?><?php echo $stand['http'] ? esc_html(' (HTTP ' . (int) $stand['http'] . ')') : ''; ?></span></td></tr>
-            <tr><th scope="row">Automatisch</th><td>
-                <?php
-                $naechster = wp_next_scheduled(CALLUNA_INDEX_PROFIL_CRON);
-                echo $naechster ? esc_html('stündlich, nächster Abruf ' . calluna_index_zeit($naechster)) : 'aus (erst nach Einrichtung)';
-                ?></td></tr>
-            <?php if ($stand['fehler'] !== '') : ?>
-                <tr><th scope="row">Fehler</th><td><span style="color:#b32d2e;"><?php echo esc_html($stand['fehler']); ?></span>
-                    <?php if ($profil !== null) : ?><br><span class="description">Das zuletzt übernommene Profil bleibt gültig.</span><?php endif; ?></td></tr>
-            <?php endif; ?>
-        </table>
-        <p>
-            <button type="submit" name="aktion" value="abrufen" class="button"<?php disabled(!calluna_index_eingerichtet()); ?>>Profil jetzt abrufen</button>
-            <?php if (!calluna_index_eingerichtet()) : ?><span class="description">erst Site-ID und Token speichern</span><?php endif; ?>
-        </p>
-        <?php if ($profil !== null) : ?>
-            <details style="margin:8px 0 16px;"><summary>Profil ansehen (JSON)</summary>
-                <pre style="max-height:420px;overflow:auto;background:#f6f7f7;padding:12px;border:1px solid #dcdcde;"><?php echo esc_html((string) wp_json_encode($profil, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)); ?></pre>
-            </details>
-        <?php endif; ?>
-
-        <h2>Module</h2>
-        <p class="description">„Vorgabe aus Index" folgt <code>profil.module.&lt;name&gt;.aktiv</code>; ohne Profil ist das Modul aus. Leere Felder übernehmen den Wert aus dem Profil, sonst den Standard.</p>
+        <p class="description">Module sind standardmäßig aus. Die Headless-Vorschau braucht man nur, wenn WordPress die Redaktion ist und ein anderes Frontend die Seite ausliefert.</p>
         <?php calluna_index_module_tabelle($e); ?>
-
-        <h2>Für den Build</h2>
-        <p><code>GET <?php echo esc_html(rest_url('calluna/v1/index/build-konfig')); ?></code><br>
-            <span class="description">Auth: Anwendungspasswort eines Administrators oder <code>X-Calluna-Token</code> (Reiter „Companion-Token"). <code>?aktualisieren=1</code> fragt vorher das Profil beim Index nach.</span></p>
-
         <p class="submit"><button type="submit" name="aktion" value="speichern" class="button button-primary">Speichern</button></p>
     </form>
     <?php
 }
 
 function calluna_index_module_tabelle(array $e): void {
-    $quellen = ['lokal' => 'lokal', 'index' => 'Vorgabe aus Index', 'standard' => 'Standard'];
+    $quellen = ['lokal' => 'eingestellt', 'index' => 'Vorgabe aus früherem Seitenprofil', 'standard' => 'Standard'];
     ?>
     <table class="widefat striped" style="max-width:1100px;">
         <thead><tr><th style="width:38%;">Modul</th><th style="width:22%;">Schalter</th><th>Wirksam</th></tr></thead>
         <tbody>
         <?php foreach (calluna_index_module() as $kennung => $modul) :
             $z = calluna_index_modul_zustand($kennung);
-            $vorgabe_text = $z['vorgabe'] === null ? 'kein Profilwert' : ($z['vorgabe'] ? 'an' : 'aus');
             ?>
             <tr>
                 <td>
@@ -256,9 +185,8 @@ function calluna_index_module_tabelle(array $e): void {
                 </td>
                 <td>
                     <select name="module[<?php echo esc_attr($kennung); ?>][zustand]">
-                        <option value="vorgabe" <?php selected($z['lokal'], 'vorgabe'); ?>>Vorgabe aus Index (<?php echo esc_html($vorgabe_text); ?>)</option>
-                        <option value="an" <?php selected($z['lokal'], 'an'); ?>>an</option>
-                        <option value="aus" <?php selected($z['lokal'], 'aus'); ?>>aus</option>
+                        <option value="an" <?php selected($z['aktiv'] || $z['lokal'] === 'an'); ?>>an</option>
+                        <option value="aus" <?php selected(!$z['aktiv'] && $z['lokal'] !== 'an'); ?>>aus</option>
                     </select>
                 </td>
                 <td>
@@ -315,7 +243,7 @@ function calluna_index_feld_html(Calluna_Index_Modul $modul, string $schluessel,
     $lokal = isset($e['module'][$kennung]['werte'][$schluessel]) ? (string) $e['module'][$kennung]['werte'][$schluessel] : '';
     $vorgabe = calluna_index_modul_vorgabe($kennung, $schluessel);
     $standard = isset($def['standard']) ? (string) $def['standard'] : '';
-    $platzhalter = $vorgabe !== null ? 'Index: ' . $vorgabe : ($standard !== '' ? 'Standard: ' . $standard : '');
+    $platzhalter = $vorgabe !== null ? 'Vorgabe: ' . $vorgabe : ($standard !== '' ? 'Standard: ' . $standard : '');
     ?>
     <tr>
         <th scope="row"><label for="<?php echo esc_attr($id); ?>"><?php echo esc_html((string) ($def['titel'] ?? $schluessel)); ?></label></th>
@@ -326,7 +254,7 @@ function calluna_index_feld_html(Calluna_Index_Modul $modul, string $schluessel,
                     $optionen = isset($def['optionen']) && is_array($def['optionen']) ? $def['optionen'] : [];
                     $wirksam = $modul->wert($schluessel);
                     echo '<select id="' . esc_attr($id) . '" name="' . esc_attr($name) . '">';
-                    echo '<option value="">' . esc_html('— ' . ($vorgabe !== null ? 'Index' : 'Standard') . ' (' . ($optionen[$vorgabe !== null ? $vorgabe : $standard] ?? ($vorgabe !== null ? $vorgabe : $standard)) . ')') . '</option>';
+                    echo '<option value="">' . esc_html('— ' . ($vorgabe !== null ? 'Vorgabe' : 'Standard') . ' (' . ($optionen[$vorgabe !== null ? $vorgabe : $standard] ?? ($vorgabe !== null ? $vorgabe : $standard)) . ')') . '</option>';
                     foreach ($optionen as $wert => $beschriftung) {
                         echo '<option value="' . esc_attr((string) $wert) . '"' . selected($lokal, (string) $wert, false) . '>' . esc_html((string) $beschriftung) . '</option>';
                     }
@@ -375,55 +303,7 @@ function calluna_index_admin_speichern(): void {
     }
     check_admin_referer('calluna_index_speichern');
 
-    $aktion = isset($_POST['aktion']) && is_string($_POST['aktion']) ? sanitize_key(wp_unslash($_POST['aktion'])) : 'speichern';
-
-    if ($aktion === 'abrufen') {
-        $stand = calluna_index_profil_abrufen(true);
-        calluna_index_abruf_meldung($stand);
-        wp_safe_redirect(calluna_index_seiten_url());
-        exit;
-    }
-
     $e = calluna_index_einstellungen();
-    $site_vorher = calluna_index_site_id();
-
-    if (!defined('CALLUNA_INDEX_SITE_ID') && isset($_POST['site_id']) && is_string($_POST['site_id'])) {
-        $site = strtolower(trim(sanitize_text_field(wp_unslash($_POST['site_id']))));
-        if ($site === '' || calluna_index_site_id_gueltig($site)) {
-            $e['site_id'] = $site;
-        } else {
-            calluna_index_meldung('error', 'Site-ID ungültig (erlaubt: a–z, 0–9, Bindestrich, 2–40 Zeichen) — nicht übernommen.');
-        }
-    }
-
-    if (!defined('CALLUNA_INDEX_URL') && isset($_POST['index_url']) && is_string($_POST['index_url'])) {
-        $roh = trim(wp_unslash($_POST['index_url']));
-        if ($roh === '') {
-            $e['index_url'] = '';
-        } else {
-            $url = calluna_index_url_pruefen($roh);
-            if ($url === '') {
-                calluna_index_meldung('error', 'Index-URL ungültig (nur https, http nur für localhost/*.test) — nicht übernommen.');
-            } else {
-                $e['index_url'] = ($url === CALLUNA_INDEX_URL_STANDARD) ? '' : $url;
-            }
-        }
-    }
-
-    if (!defined('CALLUNA_INDEX_SITE_TOKEN')) {
-        if (!empty($_POST['token_loeschen'])) {
-            delete_option(CALLUNA_INDEX_TOKEN_OPTION);
-        } else {
-            $token = isset($_POST['site_token']) && is_string($_POST['site_token']) ? trim(wp_unslash($_POST['site_token'])) : '';
-            if ($token !== '') {
-                if (preg_match('/^[\x21-\x7e]{16,512}$/', $token)) {
-                    update_option(CALLUNA_INDEX_TOKEN_OPTION, $token, false);
-                } else {
-                    calluna_index_meldung('error', 'Site-Token ungültig (16–512 sichtbare ASCII-Zeichen) — nicht übernommen.');
-                }
-            }
-        }
-    }
 
     // Module
     $eingabe = isset($_POST['module']) && is_array($_POST['module']) ? wp_unslash($_POST['module']) : [];
@@ -434,7 +314,7 @@ function calluna_index_admin_speichern(): void {
     foreach (calluna_index_module() as $kennung => $modul) {
         $m = isset($eingabe[$kennung]) && is_array($eingabe[$kennung]) ? $eingabe[$kennung] : [];
         $bisher = isset($e['module'][$kennung]) && is_array($e['module'][$kennung]) ? $e['module'][$kennung] : [];
-        $zustand = isset($m['zustand']) && in_array($m['zustand'], ['vorgabe', 'an', 'aus'], true) ? $m['zustand'] : ($bisher['zustand'] ?? 'vorgabe');
+        $zustand = isset($m['zustand']) && in_array($m['zustand'], ['an', 'aus'], true) ? $m['zustand'] : ($bisher['zustand'] ?? 'vorgabe');
         $werte = isset($bisher['werte']) && is_array($bisher['werte']) ? $bisher['werte'] : [];
         $roh_werte = isset($m['werte']) && is_array($m['werte']) ? $m['werte'] : [];
         $loeschen = isset($m['loeschen']) && is_array($m['loeschen']) ? $m['loeschen'] : [];
@@ -462,30 +342,11 @@ function calluna_index_admin_speichern(): void {
     update_option(CALLUNA_INDEX_GEHEIM_OPTION, $geheim, false);
     calluna_index_einstellungen_speichern($e);
 
-    if (calluna_index_site_id() !== $site_vorher) {
-        calluna_index_profil_verwerfen();
-    }
-
     calluna_index_uebergaenge_pruefen();
-    calluna_index_init(); // Cron je nach Einrichtung planen/abräumen
     calluna_index_meldung('success', 'Einstellungen gespeichert.');
 
-    if (calluna_index_eingerichtet()) {
-        calluna_index_abruf_meldung(calluna_index_profil_abrufen(false));
-    }
-
-    wp_safe_redirect(calluna_index_seiten_url());
+    wp_safe_redirect(calluna_index_seiten_url(['tab' => 'module']));
     exit;
-}
-
-function calluna_index_abruf_meldung(array $stand): void {
-    if ($stand['fehler'] !== '') {
-        calluna_index_meldung('error', 'Profil-Abruf: ' . $stand['fehler']);
-    } elseif ((int) $stand['http'] === 304) {
-        calluna_index_meldung('success', 'Profil ist aktuell (Revision ' . (string) $stand['revision'] . ').');
-    } else {
-        calluna_index_meldung('success', 'Profil abgerufen (Revision ' . (string) $stand['revision'] . ').');
-    }
 }
 
 /** Bereinigt einen Formularwert je Feldtyp. '' = „nicht gesetzt" (Vorgabe/Standard gilt). */

@@ -1,6 +1,7 @@
 <?php
 /**
- * Calluna Index — Kern: Einstellungen, Modul-Register, effektiver Zustand, Start.
+ * Calluna Companion — Modul-Kern: Einstellungen, Modul-Register, effektiver Zustand, Start.
+ * (Namen calluna_index_* aus der Vorversion beibehalten, damit Optionen und Filter gleich bleiben.)
  *
  * Optionen:
  *   calluna_index_einstellungen  (autoload) Site-ID, Index-URL, lokale Modul-
@@ -124,12 +125,7 @@ function calluna_index_module(): array {
     }
     $module = [];
     $klassen = [
-        'Calluna_Index_Modul_Consent',
         'Calluna_Index_Modul_Headless',
-        'Calluna_Index_Modul_Seo',
-        'Calluna_Index_Modul_Weiterleitungen',
-        'Calluna_Index_Modul_Indexnow',
-        'Calluna_Index_Modul_Sprachen',
     ];
     foreach ($klassen as $klasse) {
         if (class_exists($klasse)) {
@@ -304,8 +300,6 @@ function calluna_index_protokoll(string $text): void {
 function calluna_index_starten(): void {
     add_action('plugins_loaded', 'calluna_index_module_laden', 20);
     add_action('init', 'calluna_index_init');
-    add_action(CALLUNA_INDEX_PROFIL_CRON, 'calluna_index_profil_cron');
-    add_action('rest_api_init', 'calluna_index_rest_registrieren');
     if (is_admin()) {
         calluna_index_admin_starten();
     }
@@ -332,14 +326,9 @@ function calluna_index_init(): void {
     if (get_option(CALLUNA_INDEX_OPTION, null) === null) {
         add_option(CALLUNA_INDEX_OPTION, calluna_index_einstellungen_standard(), '', true);
     }
-    // Stündlicher Profil-Abruf nur auf eingerichteten Seiten (selbstheilend,
-    // weil register_activation_hook bei Updates nicht läuft).
-    $geplant = wp_next_scheduled(CALLUNA_INDEX_PROFIL_CRON);
-    if (calluna_index_eingerichtet()) {
-        if (!$geplant) {
-            wp_schedule_event(time() + 120, 'hourly', CALLUNA_INDEX_PROFIL_CRON);
-        }
-    } elseif ($geplant) {
+    // Seit 0.10.0 gibt es keinen Profil-Abruf mehr: einen noch geplanten
+    // Termin aus einer Vorversion abräumen (Updates lösen keinen Aktivierungs-Hook aus).
+    if (wp_next_scheduled(CALLUNA_INDEX_PROFIL_CRON)) {
         wp_clear_scheduled_hook(CALLUNA_INDEX_PROFIL_CRON);
     }
 }

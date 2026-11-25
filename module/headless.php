@@ -74,8 +74,8 @@ class Calluna_Index_Modul_Headless extends Calluna_Index_Modul {
             'umleiten' => [
                 'typ'          => 'checkbox',
                 'titel'        => 'Umleitung',
-                'beschriftung' => 'Öffentliche CMS-Seiten per 302 aufs Frontend umleiten, „Ansehen"-Links aufs Frontend',
-                'standard'     => '1',
+                'beschriftung' => 'CMS-Seiten aufs Frontend umleiten (302), „Ansehen"-Links aufs Frontend',
+                'standard'     => '0',
             ],
             'pfadFeld' => [
                 'typ'    => 'text',
@@ -91,8 +91,8 @@ class Calluna_Index_Modul_Headless extends Calluna_Index_Modul {
             'noindex' => [
                 'typ'          => 'checkbox',
                 'titel'        => 'Suchmaschinen',
-                'beschriftung' => 'CMS nicht indexieren (noindex + X-Robots-Tag) — nur solange umgeleitet wird',
-                'standard'     => '1',
+                'beschriftung' => 'CMS für Suchmaschinen sperren (noindex + X-Robots-Tag), nur solange umgeleitet wird',
+                'standard'     => '0',
             ],
             'buildHook' => [
                 'typ'    => 'ziel',
@@ -136,12 +136,6 @@ class Calluna_Index_Modul_Headless extends Calluna_Index_Modul {
                 'typ'   => 'text',
                 'titel' => 'Inhaltstypen',
                 'hilfe' => 'Kommagetrennt (z. B. <code>post, page, wp_block</code>). Leer = alle öffentlichen Inhaltstypen außer Medien, plus wiederverwendbare Blöcke und Navigation.',
-            ],
-            'neuBauenBeiProfil' => [
-                'typ'          => 'checkbox',
-                'titel'        => 'Profil-Änderung',
-                'beschriftung' => 'Neu bauen, wenn eine neue Profil-Revision ankommt (z. B. geänderte Consent-Texte)',
-                'standard'     => '1',
             ],
             'vorschau' => [
                 'typ'      => 'auswahl',
@@ -231,9 +225,6 @@ class Calluna_Index_Modul_Headless extends Calluna_Index_Modul {
             add_action('admin_bar_menu', [$this, 'leiste_knopf'], 100);
             add_action('admin_post_calluna_index_neu_bauen', [$this, 'knopf']);
             add_action('admin_notices', [$this, 'bau_hinweis']);
-            if ($this->wert('neuBauenBeiProfil') === '1') {
-                add_action('calluna_index_profil_geaendert', [$this, 'profil_geaendert'], 10, 2);
-            }
         }
 
         // Vorschau: unabhängig davon, ob Umleitung/Build hier oder in einem Projekt-mu-plugin laufen.
@@ -355,7 +346,7 @@ class Calluna_Index_Modul_Headless extends Calluna_Index_Modul {
             return;
         }
         // 302: das CMS ist kein Ziel für Suchmaschinen, die Weiterleitung bleibt änderbar.
-        wp_redirect($ziel, 302, 'Calluna Index');
+        wp_redirect($ziel, 302, 'Calluna Companion');
         exit;
     }
 
@@ -560,14 +551,6 @@ class Calluna_Index_Modul_Headless extends Calluna_Index_Modul {
             $this->vormerken('Content Pipe ' . $route);
         }
         return $antwort;
-    }
-
-    public function profil_geaendert($profil, $alte_revision): void {
-        if ($alte_revision === null) {
-            return; // erster Abruf: nichts hat sich „geändert"
-        }
-        $neu = is_array($profil) && isset($profil['revision']) && is_scalar($profil['revision']) ? (string) $profil['revision'] : '?';
-        $this->vormerken('Profil-Revision ' . $neu);
     }
 
     /**
@@ -994,7 +977,7 @@ class Calluna_Index_Modul_Headless extends Calluna_Index_Modul {
         ];
         $ergebnis = ['code' => $code, 'url' => $url, 'ok' => false, 'meldung' => ''];
         if ($url === '' || $ziel === null) {
-            $ergebnis['meldung'] = 'Vorschau-Adresse oder -Ziel ungültig (Einstellungen → Calluna Index → headless).';
+            $ergebnis['meldung'] = 'Vorschau-Adresse oder -Ziel ungültig (Einstellungen → Calluna Companion → Module → Headless).';
             return $ergebnis;
         }
         $dokument = $this->vorschau_dokument($post);

@@ -3,7 +3,7 @@
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
  * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), und Auto-Updates via GitHub-Releases.
- * Version:           0.9.1
+ * Version:           0.10.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -39,7 +39,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.9.1');
+define('CALLUNA_COMPANION_VERSION', '0.10.0');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* ============================================================================
@@ -224,15 +224,15 @@ register_activation_hook(__FILE__, function () {
     calluna_companion_get_or_create_secret();
 });
 
-/* WP-Admin Settings → Calluna Index (bis 0.9.0: „Calluna Companion")
+/* WP-Admin Settings → Calluna Companion
  * Slug bleibt `calluna-companion`, damit bestehende Links/Anleitungen
- * (options-general.php?page=calluna-companion) weiter funktionieren. Fehlt das
- * Index-Modul (index/), bleibt die alte Token-Seite. */
+ * (options-general.php?page=calluna-companion) weiter funktionieren. Fehlen die
+ * Module (index/), bleibt die einfache Token-Seite. */
 add_action('admin_menu', function () {
     $mit_index = defined('CALLUNA_INDEX_GELADEN') && function_exists('calluna_index_einstellungsseite');
     add_options_page(
-        $mit_index ? 'Calluna Index' : 'Calluna Companion',
-        $mit_index ? 'Calluna Index' : 'Calluna Companion',
+        'Calluna Companion',
+        'Calluna Companion',
         'manage_options',
         'calluna-companion',
         $mit_index ? 'calluna_index_einstellungsseite' : 'calluna_companion_settings_page'
@@ -2076,7 +2076,7 @@ if (is_readable($calluna_index_lader)) {
     try {
         require_once $calluna_index_lader;
     } catch (\Throwable $e) {
-        error_log('[Calluna Index] nicht geladen: ' . $e->getMessage());
+        error_log('[Calluna Companion] Module nicht geladen: ' . $e->getMessage());
     }
 }
 unset($calluna_index_lader);

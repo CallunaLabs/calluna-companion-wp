@@ -1,11 +1,12 @@
 <?php
 /**
- * Calluna Index — Lader.
+ * Calluna Companion — Module (Lader).
  *
- * Macht aus dem Companion das „Calluna Index Plugin": Seitenprofil aus
- * index.calluna.ai holen (Vertrag v1, calluna-index/docs/vertrag-seitenprofil.md),
- * Module ein-/ausschalten, dem Build alles über
- * GET /wp-json/calluna/v1/index/build-konfig geben.
+ * Seit 0.10.0 enthält das Release nur das Modul headless (Vorschau im
+ * Frontend-Design, Build-Auslöser). Seitenprofil, build-konfig und die Module
+ * consent, sprachen, seo, weiterleitungen, indexnow sind auf dem Branch
+ * modul-vorschau geparkt. Funktions- und Optionsnamen (calluna_index_*) bleiben,
+ * damit bestehende Einstellungen und Filter weiter gelten.
  *
  * Grundsätze:
  *  - Der Companion-Kern (Content Pipe, Dashboard, SEO-Mapping, Token-Auth,
@@ -33,16 +34,9 @@ if (!defined('CALLUNA_INDEX_HAUPTDATEI')) {
 
 require_once __DIR__ . '/modul.php';
 require_once __DIR__ . '/kern.php';
-require_once __DIR__ . '/profil.php';
-require_once __DIR__ . '/rest.php';
 require_once __DIR__ . '/admin.php';
 
-require_once dirname(__DIR__) . '/module/consent.php';
 require_once dirname(__DIR__) . '/module/headless.php';
-require_once dirname(__DIR__) . '/module/seo.php';
-require_once dirname(__DIR__) . '/module/weiterleitungen.php';
-require_once dirname(__DIR__) . '/module/indexnow.php';
-require_once dirname(__DIR__) . '/module/sprachen.php';
 
 calluna_index_starten();
 
