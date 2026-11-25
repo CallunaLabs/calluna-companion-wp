@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       Calluna Companion
  * Plugin URI:        https://github.com/callunaLabs/calluna-companion-wp
- * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), Auto-Updates via GitHub-Releases und selbstständige Registrierung beim Calluna Monitor (Heartbeat).
- * Version:           0.9.0
+ * Description:       WordPress-Bridge für Calluna Dashboard + Content Pipe. Normalisiert SEO-Felder (Yoast/RankMath/AIOSEO), bietet flachen Posts-Endpoint, Maintenance-Layer (Health, Plugin-Updates, Multi-Layer Cache-Clear inkl. WP Rocket + Elementor + Raidboxes Server-Cache), und Auto-Updates via GitHub-Releases.
+ * Version:           0.10.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Calluna Labs
@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CALLUNA_COMPANION_VERSION', '0.9.0');
+define('CALLUNA_COMPANION_VERSION', '0.10.0');
 define('CALLUNA_COMPANION_NAMESPACE', 'calluna/v1');
 
 /* ============================================================================
@@ -221,14 +221,18 @@ register_activation_hook(__FILE__, function () {
     calluna_companion_get_or_create_secret();
 });
 
-/* WP-Admin Settings → Calluna Companion */
+/* WP-Admin Settings → Calluna Companion
+ * Slug bleibt `calluna-companion`, damit bestehende Links/Anleitungen
+ * (options-general.php?page=calluna-companion) weiter funktionieren. Fehlen die
+ * Module (index/), bleibt die einfache Token-Seite. */
 add_action('admin_menu', function () {
+    $mit_index = defined('CALLUNA_INDEX_GELADEN') && function_exists('calluna_index_einstellungsseite');
     add_options_page(
         'Calluna Companion',
         'Calluna Companion',
         'manage_options',
         'calluna-companion',
-        'calluna_companion_settings_page'
+        $mit_index ? 'calluna_index_einstellungsseite' : 'calluna_companion_settings_page'
     );
 });
 
@@ -236,17 +240,18 @@ function calluna_companion_settings_page(): void {
     if (!current_user_can('manage_options')) {
         wp_die('Insufficient permissions.');
     }
-    if (
-        isset($_POST['calluna_companion_action']) &&
-        $_POST['calluna_companion_action'] === 'regenerate' &&
-        check_admin_referer('calluna_companion_regen')
-    ) {
-        update_option(CALLUNA_COMPANION_TOKEN_OPTION, wp_generate_password(64, false, false), false);
-        echo '<div class="notice notice-success is-dismissible"><p>Token regeneriert. Bestehende Calluna-Verbindungen muessen den neuen Token uebernehmen.</p></div>';
-    }
-    $secret = calluna_companion_get_or_create_secret();
     ?>
     <div class="wrap">
+        <?php calluna_companion_logo_html('Companion'); ?>
+        <h1 class="screen-reader-text">Calluna Companion</h1>
+        <?php calluna_companion_token_bereich(); ?>
+    </div>
+    <?php
+}
+
+/** Calluna-Wortmarke + Untertitel im Kopf der Einstellungsseite. */
+function calluna_companion_logo_html(string $untertitel): void {
+    ?>
         <div style="display:flex;align-items:center;gap:14px;margin:10px 0 6px;">
             <svg viewBox="0 0 169.02 27.44" fill="#6933d9" role="img" aria-label="Calluna" style="height:26px;width:auto;">
                 <path d="M12.77,20.51c1.75,0,3.2-.47,4.35-1.4.76-.62,1.37-1.42,1.82-2.4s1.46-1.63,2.56-1.63h3.33c-.5,3.14-1.85,5.66-4.03,7.56-2.18,1.9-4.86,2.84-8.02,2.84-3.6,0-6.63-1.21-9.08-3.62-2.46-2.41-3.69-5.45-3.69-9.12S1.23,6.03,3.69,3.62C6.15,1.21,9.18,0,12.77,0,15.94,0,18.61.95,20.8,2.84c2.18,1.9,3.53,4.41,4.03,7.56h-5.33c-.43-1.75-1.22-3.09-2.38-4.03s-2.6-1.4-4.35-1.4c-2.18,0-3.98.72-5.4,2.16-1.42,1.44-2.12,3.31-2.12,5.61s.71,4.17,2.12,5.61,3.21,2.16,5.4,2.16Z"></path>
@@ -260,9 +265,23 @@ function calluna_companion_settings_page(): void {
                 <polygon points="149.99 24.97 159.83 .5 154.93 .5 144.45 24.97 149.99 24.97"></polygon>
                 <polygon points="30.16 24.97 37.52 6.73 45.23 24.97 50.44 24.97 40 .5 35.11 .5 24.62 24.97 30.16 24.97"></polygon>
             </svg>
-            <span style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#6b7280;">Companion</span>
+            <span style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#6b7280;"><?php echo esc_html($untertitel); ?></span>
         </div>
-        <h1 class="screen-reader-text">Calluna Companion</h1>
+    <?php
+}
+
+/** Companion-Token anzeigen + regenerieren (unverändert seit 0.7, nur ausgelagert). */
+function calluna_companion_token_bereich(): void {
+    if (
+        isset($_POST['calluna_companion_action']) &&
+        $_POST['calluna_companion_action'] === 'regenerate' &&
+        check_admin_referer('calluna_companion_regen')
+    ) {
+        update_option(CALLUNA_COMPANION_TOKEN_OPTION, wp_generate_password(64, false, false), false);
+        echo '<div class="notice notice-success is-dismissible"><p>Token regeneriert. Bestehende Calluna-Verbindungen muessen den neuen Token uebernehmen.</p></div>';
+    }
+    $secret = calluna_companion_get_or_create_secret();
+    ?>
         <p>Dieser Token erlaubt Calluna Content Pipe (https://content-pipe.calluna.ai), diese Site auch dann zu erreichen, wenn sie hinter einem Front-Door-Basic-Auth liegt (z.B. Staging-Schutz).</p>
         <p><strong>Wie zu benutzen:</strong> Token kopieren → in Content Pipe unter <code>Admin → Tenant → Domain-Editor → Companion-Token</code> einfuegen → Speichern.</p>
         <h2>Token</h2>
@@ -282,7 +301,6 @@ function calluna_companion_settings_page(): void {
             <input type="hidden" name="calluna_companion_action" value="regenerate" />
             <button type="submit" class="button button-secondary" onclick="return confirm('Token wirklich neu generieren? Bestehende Calluna-Verbindungen brechen bis Du den neuen Token in Content Pipe nachtraegst.');">Token neu generieren</button>
         </form>
-    </div>
     <?php
 }
 
@@ -412,25 +430,99 @@ function calluna_companion_write_seo(int $post_id, array $seo): void {
         update_post_meta($post_id, $keys['focus_keyword'], sanitize_text_field($seo['focus_keyword']));
     }
 
-    // Robots directives: accept array of strings like ["noindex","nofollow"].
+    // Robots directives: accept array of strings like ["noindex","follow","noarchive","max-image-preview:large"].
     // Mapping is plugin-specific so we don't smear meta values across plugins.
+    // Seit 0.9.1 auch die erweiterten Angaben (Content Pipe, Reiter SEO).
     if (isset($seo['robots']) && is_array($seo['robots'])) {
-        $robots = array_values(array_unique(array_map('sanitize_key', $seo['robots'])));
+        $parsed = calluna_companion_parse_robots($seo['robots']);
+        $robots = $parsed['flags'];
         if ($plugin === 'rank-math') {
-            // Rank Math stores rank_math_robots as a serialized array of strings.
-            update_post_meta($post_id, $keys['robots'], $robots);
+            // Rank Math: rank_math_robots = Liste der Flags (index/noindex, nofollow,
+            // noarchive, nosnippet, noimageindex), rank_math_advanced_robots = max-*.
+            $rm = array_values(array_filter($robots, static function ($f) {
+                return in_array($f, ['index', 'noindex', 'nofollow', 'noarchive', 'nosnippet', 'noimageindex'], true);
+            }));
+            update_post_meta($post_id, $keys['robots'], $rm);
+            if (!empty($parsed['advanced'])) {
+                update_post_meta($post_id, 'rank_math_advanced_robots', $parsed['advanced']);
+            } else {
+                delete_post_meta($post_id, 'rank_math_advanced_robots');
+            }
         } elseif ($plugin === 'yoast') {
             // Yoast uses two separate meta keys, 0/1/2 (2 = noindex/nofollow active).
             update_post_meta($post_id, $keys['robots_noindex'], in_array('noindex', $robots, true) ? '1' : '2');
             update_post_meta($post_id, $keys['robots_nofollow'], in_array('nofollow', $robots, true) ? '1' : '0');
+            // Erweitert: Yoast kennt noimageindex, noarchive, nosnippet (kommagetrennt), keine max-*.
+            $adv = array_values(array_intersect(['noimageindex', 'noarchive', 'nosnippet'], $robots));
+            if ($adv) {
+                update_post_meta($post_id, '_yoast_wpseo_meta-robots-adv', implode(',', $adv));
+            } else {
+                delete_post_meta($post_id, '_yoast_wpseo_meta-robots-adv');
+            }
         } elseif ($plugin === 'aioseo') {
             // AIOSEO: write to _aioseo_robots_default + per-flag meta keys.
             update_post_meta($post_id, '_aioseo_robots_default', '0');
             update_post_meta($post_id, '_aioseo_robots_noindex', in_array('noindex', $robots, true) ? '1' : '0');
             update_post_meta($post_id, '_aioseo_robots_nofollow', in_array('nofollow', $robots, true) ? '1' : '0');
         } else {
-            update_post_meta($post_id, $keys['robots'], $robots);
+            update_post_meta($post_id, $keys['robots'], array_merge($robots, array_map(static function ($k, $v) {
+                return $k . ':' . $v;
+            }, array_keys($parsed['advanced']), $parsed['advanced'])));
         }
+    }
+
+    // Kanonische Adresse (seit 0.9.1). "" = wieder „diese Seite“ (Feld leeren).
+    if (array_key_exists('canonical', $seo) && is_string($seo['canonical'])) {
+        $key = calluna_companion_canonical_key($plugin);
+        if ($key !== null) {
+            $url = trim($seo['canonical']);
+            $url = $url === '' ? '' : esc_url_raw($url, ['http', 'https']);
+            if ($url === '') {
+                delete_post_meta($post_id, $key);
+            } else {
+                update_post_meta($post_id, $key, $url);
+            }
+        }
+    }
+}
+
+/**
+ * Robots-Liste aus der Content Pipe zerlegen: einfache Flags (index, noindex,
+ * follow, nofollow, noarchive, nosnippet, noimageindex) und erweiterte Angaben
+ * (max-snippet:N, max-video-preview:N, max-image-preview:none|standard|large).
+ * Alles andere wird verworfen.
+ *
+ * @param array<int,mixed> $raw
+ * @return array{flags: string[], advanced: array<string,string>}
+ */
+function calluna_companion_parse_robots(array $raw): array {
+    $flags    = [];
+    $advanced = [];
+    foreach ($raw as $item) {
+        if (!is_string($item)) continue;
+        $item = strtolower(trim($item));
+        if (in_array($item, ['index', 'noindex', 'follow', 'nofollow', 'noarchive', 'nosnippet', 'noimageindex'], true)) {
+            $flags[] = $item;
+        } elseif (preg_match('/^(max-snippet|max-video-preview):(-1|\d{1,6})$/', $item, $m)) {
+            $advanced[$m[1]] = $m[2];
+        } elseif (preg_match('/^max-image-preview:(none|standard|large)$/', $item, $m)) {
+            $advanced['max-image-preview'] = $m[1];
+        }
+    }
+    return ['flags' => array_values(array_unique($flags)), 'advanced' => $advanced];
+}
+
+/** Meta-Key der kanonischen Adresse je SEO-Plugin; null = nicht als Post-Meta speicherbar (AIOSEO: eigene Tabelle). */
+function calluna_companion_canonical_key(string $plugin): ?string {
+    switch ($plugin) {
+        case 'yoast':
+            return '_yoast_wpseo_canonical';
+        case 'rank-math':
+            return 'rank_math_canonical_url';
+        case 'aioseo':
+            return null;
+        default:
+            return '_calluna_seo_canonical';
     }
 }
 
@@ -460,10 +552,13 @@ function calluna_companion_rest_info(): WP_REST_Response {
         'translatepress' => defined('TRP_PLUGIN_VERSION') || class_exists('TRP_Translate_Press'),
         'weglot'         => defined('WEGLOT_VERSION') || function_exists('weglot_get_service'),
     ];
-    $i18n_active = ($i18n['polylang'] || $i18n['polylang_pro']) ? 'polylang'
+    $calluna_sprachen = function_exists('calluna_sprachen') ? calluna_sprachen() : null;
+    $i18n['calluna'] = $calluna_sprachen !== null;
+    $i18n_active = $calluna_sprachen !== null ? 'calluna'
+        : (($i18n['polylang'] || $i18n['polylang_pro']) ? 'polylang'
         : ($i18n['wpml'] ? 'wpml'
         : ($i18n['translatepress'] ? 'translatepress'
-        : ($i18n['weglot'] ? 'weglot' : null)));
+        : ($i18n['weglot'] ? 'weglot' : null))));
     $i18n['active']        = $i18n_active;
     $i18n['site_language'] = get_bloginfo('language');
     // Polylang-Sprachen (falls vorhanden) — Slugs für die Ziel-Zuordnung.
@@ -472,7 +567,9 @@ function calluna_companion_rest_info(): WP_REST_Response {
         : [];
     // Generische Sprachliste (Polylang ODER WPML) — Slugs/Codes für die Ziel-Auswahl.
     $i18n_languages = [];
-    if (function_exists('pll_languages_list')) {
+    if ($calluna_sprachen !== null) {
+        $i18n_languages = $calluna_sprachen->liste();
+    } elseif (function_exists('pll_languages_list')) {
         $i18n_languages = array_values(pll_languages_list());
     } elseif (defined('ICL_SITEPRESS_VERSION')) {
         $wpml_langs = apply_filters('wpml_active_languages', null, ['skip_missing' => 0]);
@@ -1030,6 +1127,13 @@ function calluna_companion_rest_i18n_link(WP_REST_Request $req) {
         return new WP_Error('bad_request', 'Mindestens 2 gültige Posts nötig (Quelle + >=1 Übersetzung)', ['status' => 400]);
     }
 
+    // --- Calluna Index, Modul sprachen (ersetzt WPML/Polylang auf Index-Seiten) ---
+    $calluna_sprachen = function_exists('calluna_sprachen') ? calluna_sprachen() : null;
+    if ($calluna_sprachen !== null) {
+        $gruppe = $calluna_sprachen->verknuepfen($map, $source_lang);
+        return new WP_REST_Response(['ok' => true, 'strategy' => 'calluna', 'linked' => count($map), 'gruppe' => $gruppe], 200);
+    }
+
     // --- Polylang ---
     if (function_exists('pll_set_post_language') && function_exists('pll_save_post_translations')) {
         foreach ($map as $lang => $pid) {
@@ -1101,6 +1205,11 @@ function calluna_companion_rest_i18n_overview(WP_REST_Request $req): WP_REST_Res
     $page      = max(1, (int) ($req['page'] ?? 1));
     $post_type = sanitize_key($req['post_type'] ?? 'post');
     $el_type   = 'post_' . $post_type;
+
+    $calluna_sprachen = function_exists('calluna_sprachen') ? calluna_sprachen() : null;
+    if ($calluna_sprachen !== null) {
+        return calluna_companion_i18n_overview_calluna($calluna_sprachen, $post_type, $per_page, $page);
+    }
 
     $is_pll  = function_exists('pll_languages_list') && function_exists('pll_get_post_translations');
     $is_wpml = defined('ICL_SITEPRESS_VERSION');
@@ -1183,6 +1292,52 @@ function calluna_companion_rest_i18n_overview(WP_REST_Request $req): WP_REST_Res
         'plugin'       => $is_pll ? 'polylang' : ($is_wpml ? 'wpml' : null),
         'default_lang' => $default_lang,
         'languages'    => $languages,
+        'total'        => (int) $q->found_posts,
+        'page'         => $page,
+        'per_page'     => $per_page,
+        'rows'         => $rows,
+    ], 200);
+}
+
+/** Übersicht für das Modul „sprachen": Zeilen = Dokumente der Standardsprache. */
+function calluna_companion_i18n_overview_calluna($sprachen, string $post_type, int $per_page, int $page): WP_REST_Response {
+    $standard = $sprachen->standard();
+    $q = new WP_Query([
+        'post_type'      => $post_type,
+        'post_status'    => 'publish',
+        'posts_per_page' => $per_page,
+        'paged'          => $page,
+        'orderby'        => 'date',
+        'order'          => 'DESC',
+        'meta_query'     => [[
+            'relation' => 'OR',
+            ['key' => CALLUNA_SPRACHEN_META_LANG, 'value' => $standard],
+            ['key' => CALLUNA_SPRACHEN_META_LANG, 'compare' => 'NOT EXISTS'],
+        ]],
+    ]);
+    $rows = [];
+    foreach ($q->posts as $post) {
+        $langs = [];
+        foreach ($sprachen->uebersetzungen($post->ID) as $lang => $pid) {
+            $langs[$lang] = [
+                'id'     => (int) $pid,
+                'title'  => get_the_title($pid),
+                'link'   => get_permalink($pid),
+                'status' => get_post_status($pid),
+            ];
+        }
+        $rows[] = [
+            'title'       => get_the_title($post),
+            'source_lang' => $standard,
+            'source_id'   => $post->ID,
+            'source_link' => get_permalink($post),
+            'langs'       => $langs,
+        ];
+    }
+    return new WP_REST_Response([
+        'plugin'       => 'calluna',
+        'default_lang' => $standard,
+        'languages'    => $sprachen->liste(),
         'total'        => (int) $q->found_posts,
         'page'         => $page,
         'per_page'     => $per_page,
@@ -1882,85 +2037,43 @@ function calluna_companion_maintenance_pages(WP_REST_Request $req): WP_REST_Resp
 }
 
 /* ============================================================================
- * MONITOR HEARTBEAT — periodic self-registration to monitor.calluna.ai
+ * MONITOR-HEARTBEAT ENTFERNT (0.9.1)
+ *
+ * Bis 0.9.0 meldete sich das Plugin täglich bei monitor.calluna.ai (Website-
+ * Adresse, Name, Versionen, Admin-E-Mail). Der Monitor/Index geht in der
+ * Content Pipe auf, und die Pipe braucht keine Selbstmeldung: Sie kennt die
+ * angebundenen Websites über ihre CMS-Zugänge und fragt das Plugin selbst ab.
+ * Hier wird nur noch der alte WP-Cron-Termin von Installationen geräumt, die
+ * per Auto-Update kommen (register_activation_hook feuert bei Updates nicht).
  * ========================================================================== */
 
-define('CALLUNA_MONITOR_HEARTBEAT_URL', 'https://monitor.calluna.ai/api/companion/discover');
-define('CALLUNA_MONITOR_HEARTBEAT_CRON', 'calluna_companion_monitor_heartbeat');
+define('CALLUNA_MONITOR_HEARTBEAT_CRON_LEGACY', 'calluna_companion_monitor_heartbeat');
 
-function calluna_companion_monitor_heartbeat_payload(): array {
-    global $wp_version;
-    return [
-        'site_url'       => home_url(),
-        'site_name'      => get_bloginfo('name'),
-        'wp_version'     => $wp_version ?? null,
-        'plugin_version' => CALLUNA_COMPANION_VERSION,
-        'admin_email'    => get_bloginfo('admin_email'),
-        'multisite'      => is_multisite(),
-    ];
-}
-
-function calluna_companion_monitor_heartbeat_send(): void {
-    $body = wp_json_encode(calluna_companion_monitor_heartbeat_payload());
-    $headers = ['Content-Type' => 'application/json'];
-    // Optional shared secret (defined in wp-config.php as CALLUNA_MONITOR_REGISTER_TOKEN)
-    if (defined('CALLUNA_MONITOR_REGISTER_TOKEN') && CALLUNA_MONITOR_REGISTER_TOKEN) {
-        $headers['Authorization'] = 'Bearer ' . CALLUNA_MONITOR_REGISTER_TOKEN;
+add_action('init', function () {
+    if (wp_next_scheduled(CALLUNA_MONITOR_HEARTBEAT_CRON_LEGACY)) {
+        wp_clear_scheduled_hook(CALLUNA_MONITOR_HEARTBEAT_CRON_LEGACY);
     }
-    // Filter to override URL or skip entirely (return falsy URL = skip)
-    $url = apply_filters('calluna_monitor_heartbeat_url', CALLUNA_MONITOR_HEARTBEAT_URL);
-    if (!$url) return;
-
-    wp_remote_post($url, [
-        'timeout'     => 5,
-        'blocking'    => false,
-        'headers'     => $headers,
-        'body'        => $body,
-        'data_format' => 'body',
-        'sslverify'   => true,
-    ]);
-}
-
-// On plugin activation: schedule cron + send immediately
-register_activation_hook(__FILE__, function () {
-    if (!wp_next_scheduled(CALLUNA_MONITOR_HEARTBEAT_CRON)) {
-        wp_schedule_event(time() + 60, 'daily', CALLUNA_MONITOR_HEARTBEAT_CRON);
-    }
-    // Defer the first beat to avoid blocking activation
-    wp_schedule_single_event(time() + 30, CALLUNA_MONITOR_HEARTBEAT_CRON);
 });
 
 register_deactivation_hook(__FILE__, function () {
-    wp_clear_scheduled_hook(CALLUNA_MONITOR_HEARTBEAT_CRON);
+    wp_clear_scheduled_hook(CALLUNA_MONITOR_HEARTBEAT_CRON_LEGACY);
 });
 
-add_action(CALLUNA_MONITOR_HEARTBEAT_CRON, 'calluna_companion_monitor_heartbeat_send');
+/* ============================================================================
+ * CALLUNA INDEX — Seitenprofil, Module, build-konfig (unveröffentlicht, Branch index-module)
+ * ----------------------------------------------------------------------------
+ * Liegt in index/ + module/. Fail-soft geladen: fehlt der Ordner (z. B. ein
+ * Release-ZIP ohne index/) oder wirft er beim Laden, laufen Kern, Content-Pipe-
+ * und Dashboard-Endpunkte unverändert weiter; die Einstellungsseite fällt auf
+ * die alte Token-Seite zurück. Doku: README.md → „Calluna Index".
+ * ========================================================================== */
 
-// Self-heal scheduling on every init: register_activation_hook does NOT fire
-// on plugin updates, so sites that auto-updated from an earlier version
-// without heartbeat-scheduling would never ping. Check + register on init
-// (cheap, runs once per request, no-op when already scheduled).
-add_action('init', function () {
-    if (!wp_next_scheduled(CALLUNA_MONITOR_HEARTBEAT_CRON)) {
-        wp_schedule_event(time() + 60, 'daily', CALLUNA_MONITOR_HEARTBEAT_CRON);
-        // Also fire one immediate single-event so the user sees a heartbeat
-        // shortly after the update lands, not 24h later.
-        wp_schedule_single_event(time() + 30, CALLUNA_MONITOR_HEARTBEAT_CRON);
+$calluna_index_lader = __DIR__ . '/index/index.php';
+if (is_readable($calluna_index_lader)) {
+    try {
+        require_once $calluna_index_lader;
+    } catch (\Throwable $e) {
+        error_log('[Calluna Companion] Module nicht geladen: ' . $e->getMessage());
     }
-});
-
-// Admin-triggerable REST endpoint to send a heartbeat on demand (debugging).
-add_action('rest_api_init', function () {
-    register_rest_route(CALLUNA_COMPANION_NAMESPACE, '/monitor/heartbeat', [
-        'methods'  => 'POST',
-        'callback' => function () {
-            calluna_companion_monitor_heartbeat_send();
-            return new WP_REST_Response([
-                'ok' => true,
-                'scheduled_next' => wp_next_scheduled(CALLUNA_MONITOR_HEARTBEAT_CRON),
-                'payload' => calluna_companion_monitor_heartbeat_payload(),
-            ], 200);
-        },
-        'permission_callback' => function () { return current_user_can('manage_options'); },
-    ]);
-});
+}
+unset($calluna_index_lader);

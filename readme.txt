@@ -3,7 +3,7 @@ Contributors: callunalabs
 Tags: rest-api, seo, content-pipe, headless, maintenance, monitoring, dashboard
 Requires at least: 6.0
 Tested up to: 6.5
-Stable tag: 0.9.0
+Stable tag: 0.10.0
 License: GPLv2 or later
 Plugin URI: https://github.com/callunaLabs/calluna-companion-wp
 
@@ -82,6 +82,16 @@ Außerdem wird das Feld `calluna_seo` an `/wp-json/wp/v2/posts` registriert,
 sodass es ohne Plugin-Pfad gelesen und geschrieben werden kann.
 
 == Changelog ==
+
+= 0.10.0 =
+* Neu: Modul „Headless-Vorschau“ (Einstellungen → Calluna Companion, Reiter „Headless-Vorschau“, Standard aus). Für Seiten, deren Frontend nicht WordPress ist: Knopf „Vorschau“ zeigt Entwürfe im Design des Frontends, als Vorschau-Build (Auftragsdatei oder eigener Vorschau-Hook, Warteseite im CMS) oder als signierter Link auf eine SSR-Vorschau-Route. Filter `calluna_index_vorschau_dokument`, Route `GET /calluna/v1/vorschau/<code>`. Dazu Build-Auslöser (Webhook, GitHub-Dispatch oder Auftragsdatei; entprellt mit Nachlauf), Knopf „↻ Seite neu bauen“ und Build-Status.
+* „CMS-Seiten aufs Frontend umleiten“ und „CMS für Suchmaschinen sperren“ sind eigene Schalter und standardmäßig aus. Projekt-mu-plugins, die das schon übernehmen (paqato, calluna.ai), werden erkannt; der jeweilige Teil bleibt dann aus.
+* Neu: Kanonische Adresse aus der Content Pipe (`seo.canonical`). Yoast: `_yoast_wpseo_canonical`, Rank Math: `rank_math_canonical_url`, ohne SEO-Plugin `_calluna_seo_canonical`. Leerer Wert = wieder „diese Seite“. AIOSEO speichert die Adresse in einer eigenen Tabelle und wird noch nicht beschrieben.
+* Neu: Erweiterte Robots-Angaben. Rank Math: noarchive, nosnippet, noimageindex in `rank_math_robots`, max-snippet / max-image-preview / max-video-preview in `rank_math_advanced_robots`. Yoast: noimageindex, noarchive, nosnippet in `_yoast_wpseo_meta-robots-adv` (max-* kennt Yoast nicht).
+* Fix: Angaben wie `max-snippet:-1` wurden durch `sanitize_key` zerstört; sie werden jetzt gezielt geprüft, Unbekanntes verworfen.
+* Entfernt: Die tägliche Selbstmeldung an monitor.calluna.ai (Heartbeat mit Website-Adresse, Name, Versionen und Admin-E-Mail). Der alte WP-Cron-Termin wird beim ersten Aufruf nach dem Update gelöscht. Der Filter `calluna_monitor_heartbeat_url`, die Konstante `CALLUNA_MONITOR_REGISTER_TOKEN` und `POST /calluna/v1/monitor/heartbeat` haben keine Wirkung mehr.
+* Menü heißt „Calluna Companion“. Die Optionen `calluna_index_einstellungen` und `calluna_index_geheim` behalten ihren Namen, bestehende Einstellungen gelten weiter.
+* Nicht enthalten (geparkt auf Branch `modul-vorschau`): Seitenprofil aus index.calluna.ai, `GET /calluna/v1/index/build-konfig`, Module consent, sprachen, seo, weiterleitungen, indexnow. Ein noch geplanter Profil-Abruf wird beim ersten Aufruf nach dem Update gelöscht.
 
 = 0.9.0 =
 * Neu: Strukturierte Daten (JSON-LD) aus der Content Pipe im <head>. `POST /calluna/v1/posts/{id}` nimmt `schema: { article, faq_page }` an und speichert es als Post-Meta `_calluna_schema`.
